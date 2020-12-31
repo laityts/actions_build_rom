@@ -1,0 +1,37 @@
+[
+  {
+    "url":"git@github.com:laityts/android_kernel_xiaomi_msm8953.git",
+    "target_path":"kernel/xiaomi/msm8953",
+    "branch":"11.0"
+  },
+  {
+    "url":"git@github.com:laityts/android_device_xiaomi_msm8953-common.git",
+    "target_path":"device/xiaomi/msm8953-common",
+    "branch":"11.0"
+  },
+  {
+    "url":"git@github.com:laityts/android_device_xiaomi_tiffany.git",
+    "target_path":"device/xiaomi/tiffany",
+    "branch":"11.0"
+  },
+  {
+    "url":"git@github.com:laityts/vendor_xiaomi.git",
+    "target_path":"vendor/xiaomi",
+    "branch":"11.0"
+  },
+  {
+    "url":"git@github.com:laityts/android_hardware_qcom_audio.git",
+    "target_path":"hardware/qcom-caf/msm8996/audio",
+    "branch":"11.0-caf-msm8996"
+  },
+  {
+    "url":"git@github.com:laityts/android_hardware_qcom_display.git",
+    "target_path":"hardware/qcom-caf/msm8996/display",
+    "branch":"11.0-caf-msm8996"
+  },
+  {
+    "url":"git@github.com:laityts/android_hardware_qcom_media.git",
+    "target_path":"hardware/qcom-caf/msm8996/media",
+    "branch":"11.0-caf-msm8996"
+  }
+]
