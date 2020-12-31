@@ -1,0 +1,722 @@
+# 利用ssh登录服务器自动构建ROM并发布
+name: building-rom
+
+# 运行方式:手动，自动(每月15号3点执行)，push，pull_request，点击[start]
+on:
+  #push:
+  #pull_request:
+  schedule:
+    - cron:  '0 3 5 * *'
+  workflow_dispatch:
+     inputs:
+       clean:
+         description: 'Clean'
+         required: true
+         default: 'true'
+       sync:
+         description: 'Repo Sync'
+         required: true
+         default: 'false'
+       gapps:
+         description: 'Build Gapps'
+         required: true
+         default: 'false'
+       target:
+         description: 'Device Code'
+         required: true
+         default: 'tiffany'
+       ccache:
+         description: 'Ccache'
+         required: true
+         default: 'true'
+       build:
+         description: 'Start Building'
+         required: true
+         default: 'true'
+       upload:
+         description: 'Official Upload'
+         required: true
+         default: 'false'
+       clean_dt:
+         description: 'Clean Device Trees'
+         required: true
+         default: 'false'
+       clean_repo:
+         description: 'Clean Repo'
+         required: true
+         default: 'false'
+       notice:
+         description: 'Telegram Notification'
+         required: true
+         default: '2'
+
+jobs:
+  build:
+    # 只允许所有者点击[start]运行
+    if: github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-latest
+
+    steps:
+      # 在$GITHUB_WORKSPACE下签出您的存储库，以便您的工作可以访问它
+      - name: Checkout
+        uses: actions/checkout@v2
+        
+      - name: Get variables
+        run: |
+          echo "Get variables"
+          if [[ -z "${{ github.event.inputs.clean }}" ]]; then
+              echo "::set-output name=clean::$(jq -r '.clean' config.json)"
+          else
+              echo "::set-output name=clean::${{ github.event.inputs.clean }}"
+          fi
+          if [[ -z "${{ github.event.inputs.sync }}" ]]; then
+              echo "::set-output name=sync::$(jq -r '.sync' config.json)"
+          else
+              echo "::set-output name=sync::${{ github.event.inputs.sync }}"
+          fi
+          if [[ -z "${{ github.event.inputs.gapps }}" ]]; then
+              echo "::set-output name=gapps::$(jq -r '.gapps' config.json)"
+          else
+              echo "::set-output name=gapps::${{ github.event.inputs.gapps }}"
+          fi
+          if [[ -z "${{ github.event.inputs.target }}" ]]; then
+              echo "::set-output name=target::$(jq -r '.target' config.json)"
+          else
+              echo "::set-output name=target::${{ github.event.inputs.target }}"
+          fi
+          if [[ -z "${{ github.event.inputs.ccache }}" ]]; then
+              echo "::set-output name=ccache::$(jq -r '.ccache' config.json)"
+          else
+              echo "::set-output name=ccache::${{ github.event.inputs.ccache }}"
+          fi
+          if [[ -z "${{ github.event.inputs.build }}" ]]; then
+              echo "::set-output name=build::$(jq -r '.build' config.json)"
+          else
+              echo "::set-output name=build::${{ github.event.inputs.build }}"
+          fi
+          if [[ -z "${{ github.event.inputs.upload }}" ]]; then
+              echo "::set-output name=upload::$(jq -r '.upload' config.json)"
+          else
+              echo "::set-output name=upload::${{ github.event.inputs.upload }}"
+          fi
+          if [[ -z "${{ github.event.inputs.clean_dt }}" ]]; then
+              echo "::set-output name=clean_dt::$(jq -r '.clean_dt' config.json)"
+          else
+              echo "::set-output name=clean_dt::${{ github.event.inputs.clean_dt }}"
+          fi
+          if [[ -z "${{ github.event.inputs.clean_repo }}" ]]; then
+              echo "::set-output name=clean_repo::$(jq -r '.clean_repo' config.json)"
+          else
+              echo "::set-output name=clean_repo::${{ github.event.inputs.clean_repo }}"
+          fi
+          if [[ -z "${{ github.event.inputs.notice }}" ]]; then
+              echo "::set-output name=notice::$(jq -r '.notice' config.json)"
+          else
+              echo "::set-output name=notice::${{ github.event.inputs.notice }}"
+          fi          
+          echo "::set-output name=rom::$(jq -r '.rom' config.json)"
+          echo "::set-output name=cleaning::$(jq -r '.cleaning' config.json)"
+          echo "::set-output name=manifest::$(jq -r '.manifest' config.json)"
+          echo "::set-output name=branch::$(jq -r '.branch' config.json)"
+          echo "::set-output name=brand::$(jq -r '.brand' config.json)"
+          echo "::set-output name=lunch::$(jq -r '.lunch' config.json)"
+          echo "::set-output name=variant::$(jq -r '.variant' config.json)"
+          echo "::set-output name=wetransfer::$(jq -r '.wetransfer' config.json)"
+          echo "::set-output name=release::$(jq -r '.release' config.json)"
+          echo "::set-output name=gdrive::$(jq -r '.gdrive' config.json)"
+          echo "::set-output name=artifact::$(jq -r '.artifact' config.json)"
+          echo "::set-output name=sf_name::$(jq -r '.sf_name' config.json)"
+        id: var
+
+      - id: pwd
+        name: Initial
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Set the home directory"
+            echo "::set-output name=pwd::${HOME}/${{ steps.var.outputs.rom }}"
+            if [ ! -d ${{ steps.var.outputs.rom }} ]; then
+                mkdir ${{ steps.var.outputs.rom }}
+            fi
+
+      - name: Clean Up
+        if: steps.var.outputs.clean == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "pwd"
+            cd ${{ steps.pwd.outputs.pwd }}
+            if [ -d ${{ steps.pwd.outputs.pwd }}/out/target/product/ ]; then
+                source build/envsetup.sh
+                if [[ "${{ steps.var.outputs.cleaning }}" =~ "clean" ]]; then
+                    make clean
+                    echo "cleaning..."
+                elif [[ "${{ steps.var.outputs.cleaning }}" =~ "clobber" ]]; then
+                    make clean && make clobber
+                    echo "make clobber..."
+                else
+                    rm -rf ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}
+                    echo "rm -rf out/target/product/${{ steps.var.outputs.target }}"
+                fi
+            fi
+
+      - id: sync
+        name: Repo Sync
+        if: steps.var.outputs.sync == 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "sync"
+            cd ${{ steps.pwd.outputs.pwd }}
+            PATH="$HOME/bin:$PATH"
+            if ! [ -f ${{ steps.pwd.outputs.pwd }}/.repo/manifest.xml ]; then
+                repo init -u ${{ steps.var.outputs.manifest }} -b ${{ steps.var.outputs.branch }} --depth=1
+            fi
+            # Finnaly start syncing
+            SYNC_START=$(date +"%s")
+            if [ -f ${{ steps.pwd.outputs.pwd }}/Makefile ]; then
+                rm -rf ${{ steps.pwd.outputs.pwd }}/Makefile
+            fi
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            wget -O remove.json -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/remove.json
+            count=$(jq length remove.json)
+            for ((i=0;i<${count};i++));
+            do
+               target=$(jq -r --argjson i $[i] '.[$i].target_path' remove.json)
+               echo "target: $target"
+               rm -rf $target
+            done
+            rm -rf remove.json
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Syncing ${{ steps.var.outputs.rom }} Start Time: </b><i>$(date +"%Y-%m-%d"-%H:%M)</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+            if ! [ -f ${{ steps.pwd.outputs.pwd }}/Makefile ]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Failed sync ${{ steps.var.outputs.rom }}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                exit 1
+            fi
+            SYNC_END=$(date +"%s")
+            DIFF=$(($SYNC_END - $SYNC_START))
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Sync ${{ steps.var.outputs.rom }} Finished Time:</b> <i>$(($DIFF / 60)) minutes and $(($DIFF % 60)) seconds</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            echo "Sync Finished"
+
+      - id: dt
+        name: Cloning device specific dependencies
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Cloning..."
+            cd ${{ steps.pwd.outputs.pwd }}
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            wget -O ${{ steps.var.outputs.target }}.json -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/${{ steps.var.outputs.target }}.json
+            wget -O md5.txt -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/md5.txt
+            echo "Cloning device specific dependencies"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Cloning device specific dependencies" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            if [[ "${{ steps.var.outputs.clean_dt }}" == 'true' ]]; then
+                rm -rf device/${{ steps.var.outputs.brand }}
+                rm -rf kernel/${{ steps.var.outputs.brand }}
+                rm -rf vendor/${{ steps.var.outputs.brand }}
+            fi
+            count=$(jq length ${{ steps.var.outputs.target }}.json)
+            for ((i=0;i<${count};i++));
+            do
+               repo_url=$(jq -r --argjson i $[i] '.[$i].url' ${{ steps.var.outputs.target }}.json)
+               branch=$(jq -r --argjson i $[i] '.[$i].branch' ${{ steps.var.outputs.target }}.json)
+               target=$(jq -r --argjson i $[i] '.[$i].target_path' ${{ steps.var.outputs.target }}.json)
+               if [[ "${{ steps.var.outputs.clean_dt }}" == 'true' ]]; then
+                   rm -rf $target
+               fi
+               if [ ! -d $target ]; then
+                   git clone -b ${branch} ${repo_url} ${target} --depth=1
+               fi
+            done
+            rm -rf ${{ steps.var.outputs.target }}.json
+            echo "::set-output name=date::$(date +%Y%m%d)"
+            echo "::set-output name=day::$(date +%d%m%Y)"
+
+      - id: build
+        name: Start Building
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "building"
+            cd ${{ steps.pwd.outputs.pwd }}
+            if [[ "${{ steps.var.outputs.ccache }}" == 'true' ]]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="CCACHE is enabled for this build" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                # check and set ccache path on envsetup
+                if [ -z ${CCACHE_EXEC} ]; then
+                    ccache_path=$(which ccache)
+                    if [ ! -z "$ccache_path" ]; then
+                        export CCACHE_EXEC="$ccache_path"
+                        echo "ccache found and CCACHE_EXEC has been set to : $ccache_path"
+                    else
+                        echo "ccache not found/installed!"
+                    fi
+                fi
+                export USE_CCACHE=1
+                export CCACHE_DIR="$HOME/.ccache/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }}"
+                ccache -M 50G
+                ccache -s
+            fi
+            if [[ "${{ steps.var.outputs.gapps }}" == 'true' ]]; then
+                #export TARGET_GAPPS_ARCH=arm64
+                #export TARGET_SUPPORTS_GOOGLE_RECORDER=true
+                if [ -z $(grep -rn "vendor/google/gms/config.mk" device/${{ steps.var.outputs.brand }}) ]; then
+                    sed -i '$a\$(call inherit-product, vendor/google/gms/config.mk)' device/${{ steps.var.outputs.brand }}/${{ steps.var.outputs.target }}/device.mk
+                    sed -i 's/Browser2/& Jelly/' vendor/google/gms/Android.bp
+                    sed -i ':a;N;$!ba;s/Calendar/& Etar/4' vendor/google/gms/Android.bp
+                fi
+                if [ -f "vendor/google/gms/config.mk" ]; then
+                    echo "::set-output name=target::#Gapps"
+                    GAPPS="/gapps"
+                    echo "::set-output name=gapps::${GAPPS}"
+                else
+                    echo "::set-output name=target::#Vanilla"
+                    GAPPS=""
+                    echo "::set-output name=gapps::${GAPPS}"
+                fi
+            else
+                echo "::set-output name=target::#Vanilla"
+                GAPPS=""
+                echo "::set-output name=gapps::${GAPPS}"
+            fi
+            BUILD_START=$(date +"%s")
+            DATE="$(date +%Y%m%d)"
+            DAY="$(date +%d%m%Y)"            
+            echo "::set-output name=build_date::$(date +%Y-%m-%d)"
+            echo "::set-output name=hms::$(date +%H:%M:%S)"
+            echo "::set-output name=date::${DATE}"
+            echo "::set-output name=day::${DAY}"
+            if [[ "${{ steps.var.outputs.build }}" == 'true' ]]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ steps.var.outputs.rom }} start building" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTM
+                source build/envsetup.sh
+                lunch ${{ steps.var.outputs.lunch }}_${{ steps.var.outputs.target }}-${{ steps.var.outputs.variant }}
+                HM="$(date +%H%M)"
+                echo "::set-output name=hm::$(HM)"
+                make bacon -j$(nproc --all) 2>&1 | tee log.txt
+            else
+                HM="$(date +%H%M)"
+                echo "::set-output name=hm::$(HM)"
+            fi
+            BUILD_END=$(date +"%s")
+            DIFF=$(($BUILD_END - $BUILD_START))
+            echo "::set-output name=diff::${DIFF}"
+            if [[ ! -z "$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${DATE}*.zip)" ]]; then
+                echo "${DATE}"
+                FILENAME=$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${DATE}*.zip)
+                NAME=$(basename ${FILENAME})
+            else
+                echo "${DAY}"
+                FILENAME=$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${DAY}*.zip)
+                NAME=$(basename ${FILENAME})
+            fi
+            DATE2="$(date +%Y%m%d -d '-1 day')"
+            if [[ ! -z "$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${DATE2}*.zip)" ]]; then
+                FILENAME=$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${DATE2}*.zip)
+                NAME=$(basename ${FILENAME})
+            fi
+            if [[ ! -z "$(echo ${NAME} | grep -i "UNOFFICIAL")" ]]; then
+                BUILD_TYPE="-UNOFFICIAL"
+                echo "::set-output name=build_type::${BUILD_TYPE}"
+            elif [[ ! -z "$(echo ${NAME} | grep -i "OFFICIAL")" ]]; then
+                BUILD_TYPE="-OFFICIAL"
+                echo "::set-output name=build_type::${BUILD_TYPE}"
+            fi
+            FULLNAME=${NAME%.*}
+            SIZE=$(du -sh ${FILENAME} | awk '{print $1}')
+            MD5SUM=$(md5sum ${FILENAME} | cut -d' ' -f1)
+            #echo $(MD5SUM) >>md5sum.txt
+            sed -i "s/tmp/$MD5SUM/" md5.txt
+            curl -X POST -d 'access_token=77c248185d23821a02e78e750066b1981002c51f4c36df9697aad2fa18f3' -d 'title=MD5SUM' -d 'author_name=Eytan' -d '@md5.txt' "https://api.telegra.ph/createPage" -o test.json
+            echo $(jq -r '.result' test.json) >>md5sum.json
+            MD5SUM=$(echo $(jq -r '.url' md5sum.json))
+            echo "::set-output name=filename::${FILENAME}"
+            echo "::set-output name=name::${NAME}"
+            echo "::set-output name=fullname::${FULLNAME}"
+            echo "::set-output name=size::${SIZE}"
+            echo "::set-output name=md5sum::${MD5SUM}"
+            echo "::set-output name=hm::${HM}"
+            curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"md5sum.json" -F chat_id=${{ secrets.CHATID }}
+            rm test.json
+            rm md5sum.json
+            rm md5.txt
+            BRANCH=${{ steps.var.outputs.branch }}
+            if [[ ! -z "$(echo ${BRANCH} | grep -iE '11|elle|eleven|r|18')" ]]; then
+                echo "R"
+                BRANCH="#R"
+                echo "::set-output name=branch::${BRANCH}"
+                echo "::set-output name=branch2::11"
+            elif [[ ! -z "$(echo ${BRANCH} | grep -iE '10|ten|q|17')" ]]; then
+                echo "Q"
+                BRANCH="#Q"
+                echo "::set-output name=branch::${BRANCH}"
+                echo "::set-output name=branch2::10"
+            else
+                echo "::set-output name=branch::#${{ steps.var.outputs.branch }}"
+            fi
+            if [ ! -d /var/www/tiny/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }} ]; then
+                mkdir -p /var/www/tiny/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }}/
+                chown -R www-data:www-data /var/www/
+            fi
+            if [[ ! -z "${FILENAME}" ]]; then
+                cp -f ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/${NAME} /var/www/tiny/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }}/
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Build Complete</b>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            else
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ steps.var.outputs.rom }} Build for ${{ steps.var.outputs.tiffany }} <b>failed</b> in $((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
+                exit 1
+            fi
+            if [ -f log.txt ]; then
+                rm -rf log.txt
+            fi
+
+      - id: down
+        name: Download
+        run: |
+          echo "Download"
+          mkdir ${{ steps.var.outputs.rom }}
+          sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:${{ steps.build.outputs.filename }} ${{ steps.var.outputs.rom }}/
+          cd ${{ steps.var.outputs.rom }}
+          echo "${{ github.run_id }}"
+          echo "${{ github.repository }}"
+          ActionsBuild="[${{ steps.var.outputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          release="https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }}"
+          echo "::set-output name=release::${release}"
+          echo "Release: ${release}"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build[ ${{ steps.var.outputs.target }} ]: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+          ls
+
+      - id: wetrans
+        name: Upload to WeTransfer
+        if: steps.var.outputs.wetransfer == 'true'
+        run: |
+          cd ${{ steps.var.outputs.rom }}
+          curl -fsSL git.io/file-transfer | sh
+          wetrans=$(./transfer wet -s -p 16 --no-progress ${{ steps.build.outputs.name }})
+          wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
+          echo "WeTransfer: $wetrans"
+          echo "::set-output name=wetransfer::$wetrans"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - name: Upload to Release
+        if: steps.var.outputs.release == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.var.outputs.rom }}/${{ steps.build.outputs.name }}
+          name: ${{ steps.build.outputs.fullname }}
+          tag_name: ${{ github.run_id }}
+          body: ${{ steps.build.outputs.fullname }} built by Eytan
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
+
+      - name: Upload to Artifact
+        if: steps.var.outputs.artifact == 'true'
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.var.outputs.rom }}/${{ steps.build.outputs.name }}
+          retention-days: 7
+
+      - id: sf
+        name: Upload to Sourceforge
+        if: steps.var.outputs.upload == 'false'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "sourceforge"
+            cd ${{ steps.pwd.outputs.pwd }}
+            sshpass -p ${{ secrets.PASSWD }} scp ${{ steps.build.outputs.filename }} ${{ steps.var.outputs.sf_name }}@frs.sourceforge.net:/home/frs/project/${{ steps.var.outputs.target }}-project/${{ steps.var.outputs.rom }}${{ steps.build.outputs.gapps }}/
+            echo "Download Link: https://sourceforge.net/projects/${{ steps.var.outputs.target }}-project/files/${{ steps.var.outputs.rom }}${{ steps.build.outputs.gapps }}/${{ steps.build.outputs.name }}/download"
+            SFLINK="https://sourceforge.net/projects/${{ steps.var.outputs.target }}-project/files/${{ steps.var.outputs.rom }}${{ steps.build.outputs.gapps }}/${{ steps.build.outputs.name }}/download"
+            echo "::set-output name=sflink::${SFLINK}"
+            echo "sflink: ${SFLINK}"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - id: upload
+        name: Upload to crDroid Official
+        if: steps.var.outputs.upload == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "sourceforge"
+            cd ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}
+            curl --ssl -k -T ${{ steps.build.outputs.name }} ftp://upme.crdroid.net/files/${{ steps.var.outputs.target }}/7.x/ --user uploader:uploader
+            echo "Download Link: https://sourceforge.net/projects/crdroid/files/${{ steps.var.outputs.target }}/7.x/${{ steps.build.outputs.name }}/download"
+            SFLINK="https://sourceforge.net/projects/crdroid/files/${{ steps.var.outputs.target }}/7.x/${{ steps.build.outputs.name }}/download"
+            echo "::set-output name=sflink::${SFLINK}"
+            echo "sflink: ${SFLINK}"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="crDroid Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - id: gd
+        name: Upload to Gdrive
+        if: steps.var.outputs.gdrive == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "gdrive"
+            cd ${{ steps.pwd.outputs.pwd }}
+            gdrive upload ${{ steps.build.outputs.filename }} | tee -a gd-up.txt
+            FILEID=$(cat gd-up.txt | tail -n 1 | awk '{ print $2 }')
+            gdrive share "$FILEID"
+            gdrive info "$FILEID" | tee -a gd-info.txt
+            MD5SUM=$(cat gd-info.txt | grep 'Md5sum' | awk '{ print $2 }')
+            NAME=$(cat gd-info.txt | grep 'Name' | awk '{ print $2 }')
+            SIZE=$(cat gd-info.txt | grep 'Size' | awk '{ print $2 }')
+            DLURL="$(cat gd-info.txt | grep 'DownloadUrl' | awk '{ print $2 }')"
+            if [ -f gd-up.txt ]; then
+                rm -rf gd-up.txt
+            fi
+            if [ -f gd-info.txt ]; then
+                rm -rf gd-info.txt
+            fi
+            echo "::set-output name=gdrive::${DLURL}"
+            echo "Gdrive: ${DLURL}"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Gdrive upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - name: Telegram Notification
+        if: steps.var.outputs.notice == '1'
+        uses: ./
+        continue-on-error: true
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Telegram Notification"
+            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ steps.pwd.outputs.pwd }}/device/${{ steps.var.outputs.brand }})" ]]; then
+                TREBLE="#Treble"
+            else
+                TREBLE="#NonTreble"
+            fi
+            if [[ ! -z "$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.date }}*.zip)" ]]; then
+                FILENAME="$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.date }}*.zip)" 
+                echo "FILENAME: ${FILENAME}"
+            else
+                FILENAME="$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.day }}*.zip)"
+            fi
+            NAME=$(basename ${FILENAME})
+            echo ${NAME}
+            TEST=$(echo "${NAME}" | sed 's/\b[a-z]/\U&/' | sed 's/OS/ OS/' | sed 's/Lineage/LineageOS/' | sed 's/_/-/' | sed 's/vanilla//I' | sed 's/${{ steps.build.outputs.date }}//' | sed 's/${{ steps.build.outputs.day }}//' | sed 's/${{ steps.build.outputs.hm }}//' | sed 's/gapps//I' | sed 's/unofficial//I' | sed 's/official//I' | sed 's/.zip//' | sed 's/${{ steps.var.outputs.target }}//I' | sed 's/beta//I' | sed 's/11.0//' | sed 's/A11//' | sed 's/-/ /g' )
+            echo "TEST: $(TEST)"
+            DIFF="${{ steps.build.outputs.diff }}"
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            echo $branch
+            BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ steps.var.outputs.rom }}.png"
+            echo "$BANNER_LINK"
+            if ! [ -d "$HOME/logo" ]; then
+                mkdir "$HOME/logo"
+            fi
+            BANNER="$HOME/logo/${{ steps.var.outputs.rom }}.png"
+            if ! [ -f "${BANNER}" ]; then
+                wget $BANNER_LINK -O $BANNER
+                cd $HOME/logo
+                ls -al
+            fi
+            TELEGRAM_FOLDER="${HOME}"/telegram
+            if ! [ -d "${TELEGRAM_FOLDER}" ]; then
+                git clone https://github.com/laityts/telegram.sh/ "${TELEGRAM_FOLDER}"
+            fi
+            TELEGRAM="${TELEGRAM_FOLDER}"/telegram
+            tg_pub() {
+                "${TELEGRAM}" -t "${{ secrets.TELEGRAM_TOKEN }}" -c "${{ secrets.CHATID }}" -i "$BANNER" -M \
+                "$(
+                               for POST in "${@}"; do
+                                        echo "${POST}"
+                               done
+                )"
+            }
+            tg_pub "#ROM #${{ steps.var.outputs.rom }} ${{ steps.build.outputs.branch }} ${{ steps.build.outputs.target }} ${{ steps.decrypt.outputs.decrypt }}" \
+                    "*${TEST} ${{ steps.build.outputs.build_type }} | ${{ steps.build.outputs.branch2 }}*" \
+                    " " \
+                    "* • Device:* ${{ steps.var.outputs.target }}" \
+                    "* • Date:* ${{ steps.build.outputs.build_date }} ${{ steps.build.outputs.hms }}" \
+                    "* • Size:* ${{ steps.build.outputs.size }}" \
+                    "* • MD5:* [Here](${{ steps.build.outputs.md5sum }})" \
+                    "* • Changelogs:* [Here](https://raw.githubusercontent.com/laityts/ChangeLog/${{ steps.var.outputs.rom }}/changelog_${{ steps.var.outputs.target }}.txt)" \
+                    " " \
+                    "*First time installation:*" \
+                    " - Download ROM from below" \
+                    " - Download Magisk for Android 11 (optionally)" \
+                    " - Reboot to recovery" \
+                    " - Format data (if encrypted)" \
+                    " - Wipe system, vendor, cache, dalvik, data" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Flash latest android 10 firmware" \
+                    " - Reboot" \
+                    " " \
+                    "*Dirty flash/Update:*" \
+                    " - Wipe system, vendor, cache, dalvik" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Reboot"
+
+      - name: Telegram Notification
+        if: steps.var.outputs.notice == '2'
+        uses: ./
+        continue-on-error: true
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Telegram Notification"
+            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ steps.pwd.outputs.pwd }}/device/${{ steps.var.outputs.brand }})" ]]; then
+                TREBLE="#Treble"
+            else
+                TREBLE="#NonTreble"
+            fi
+            if [[ ! -z "$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.date }}*.zip)" ]]; then
+                FILENAME="$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.date }}*.zip)" 
+                echo "FILENAME: ${FILENAME}"
+            else
+                FILENAME="$(ls ${{ steps.pwd.outputs.pwd }}/out/target/product/${{ steps.var.outputs.target }}/*${{ steps.build.outputs.day }}*.zip)"
+            fi
+            NAME=$(basename ${FILENAME})
+            echo ${NAME}
+            TEST=$(echo "${NAME}" | sed 's/\b[a-z]/\U&/' | sed 's/OS/ OS/' | sed 's/Lineage/LineageOS/' | sed 's/_/-/' | sed 's/vanilla//I' | sed 's/${{ steps.build.outputs.date }}//' | sed 's/${{ steps.build.outputs.day }}//' | sed 's/${{ steps.build.outputs.hm }}//' | sed 's/gapps//I' | sed 's/unofficial//I' | sed 's/official//I' | sed 's/.zip//' | sed 's/${{ steps.var.outputs.target }}//I' | sed 's/beta//I' | sed 's/11.0//' | sed 's/A11//' | sed 's/-/ /g' )
+            echo "TEST: $(TEST)"
+            DIFF="${{ steps.build.outputs.diff }}"
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            echo $branch
+            BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ steps.var.outputs.rom }}.png"
+            echo "$BANNER_LINK"
+            if ! [ -d "$HOME/logo" ]; then
+                mkdir "$HOME/logo"
+            fi
+            BANNER="$HOME/logo/${{ steps.var.outputs.rom }}.png"
+            if ! [ -f "${BANNER}" ]; then
+                wget $BANNER_LINK -O $BANNER
+                cd $HOME/logo
+                ls -al
+            fi
+            TELEGRAM_FOLDER="${HOME}"/telegram
+            if ! [ -d "${TELEGRAM_FOLDER}" ]; then
+                git clone https://github.com/laityts/telegram.sh/ "${TELEGRAM_FOLDER}"
+            fi
+            TELEGRAM="${TELEGRAM_FOLDER}"/telegram
+            tg_pub() {
+                "${TELEGRAM}" -t "${{ secrets.TELEGRAM_TOKEN }}" -c "${{ secrets.CHATID }}" -i "$BANNER" -M \
+                "$(
+                               for POST in "${@}"; do
+                                        echo "${POST}"
+                               done
+                )"
+            }
+            tg_pub "#ROM #${{ steps.var.outputs.rom }} ${{ steps.build.outputs.branch }} ${{ steps.build.outputs.target }} ${TREBLE}" \
+                    "*${TEST} ${{ steps.build.outputs.build_type }} | ${{ steps.build.outputs.branch2 }}*" \
+                    " " \
+                    "* • Device:* ${{ steps.var.outputs.target }}" \
+                    "* • Date:* ${{ steps.build.outputs.build_date }} ${{ steps.build.outputs.hms }}" \
+                    "* • Size:* ${{ steps.build.outputs.size }}" \
+                    "* • MD5:* [Here](${{ steps.build.outputs.md5sum }})" \
+                    "* • Changelogs:* [Here](https://raw.githubusercontent.com/crdroidandroid/android_vendor_crDroidOTA/11.0/changelog_${{ steps.var.outputs.target }}.txt)" \
+                    " " \
+                    "*First time installation:*" \
+                    " - Download ROM from below" \
+                    " - Download Magisk for Android 11 (optionally)" \
+                    " - Reboot to recovery" \
+                    " - Format data (if encrypted)" \
+                    " - Wipe system, vendor, cache, dalvik, data" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Flash latest miui firmware" \
+                    " - Reboot" \
+                    " " \
+                    "*Dirty flash/Update:*" \
+                    " - Wipe system, vendor, cache, dalvik" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Reboot" \
+                    " " \
+                    "*NOTES:*" \
+                    " - 5X baseband is work"
+
+      - name: ButtonUrl
+        uses: ./
+        continue-on-error: true
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "ButtonUrl"
+            if [[ "${{ steps.var.outputs.upload }}" == 'true' ]]; then
+                SFLINK="${{ steps.upload.outputs.sflink }}"
+            else
+                SFLINK="${{ steps.sf.outputs.sflink }}"
+            fi
+            curl -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+              -H "Content-Type: application/json" \
+              -d '{
+                     "chat_id": "'"${{ secrets.CHATID }}"'",
+                     "text": "'"${{ steps.build.outputs.fullname }}"'",
+                     "reply_markup":
+                     {
+                         "inline_keyboard": [
+                             [{
+                                 "text": "Download",
+                                 "url": "'"http://cloud-dl.top/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }}/${{ steps.build.outputs.name }}"'"
+                             },
+                             {
+                                 "text": "Release",
+                                 "url": "'"${{ steps.down.outputs.release }}"'"
+                             }]
+                         ],
+                         "inline_keyboard": [
+                             [{
+                                 "text": "Sourceforge",
+                                 "url": "'"${SFLINK}"'"
+                             },
+                             {
+                                 "text": "WeTransfer",
+                                 "url": "'"${{ steps.wetrans.outputs.wetransfer }}"'"
+                             }]
+                         ]
+                     }
+                 }'
+
+      - name: Remove old Releases
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 7
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
+
+      - name: Clean Repo
+        if: steps.var.outputs.clean_repo == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "${{ steps.pwd.outputs.pwd }}"
+            rm -rf ${{ steps.pwd.outputs.pwd }}
+            rm -rf "$HOME/.ccache/${{ steps.var.outputs.rom }}/${{ steps.var.outputs.target }}"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Repo: Clean up</b>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML

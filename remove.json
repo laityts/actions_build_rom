@@ -1,0 +1,8 @@
+[
+  {
+    "target_path":"hardware/qcom-caf/msm8996"
+  },
+  {
+    "target_path":"hardware/qcom-caf/sdm845"
+  }
+]
