@@ -273,7 +273,10 @@ jobs:
             else
                 TREBLE="#NonTreble"
             fi
-            DATE="$(date +%Y-%m-%d)"
+            typeset -u target
+            target='${{ github.event.inputs.target }}'
+            echo $target
+            DATE="$(date +%d/%m/%Y)"
             branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
             echo $branch
             BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ github.event.inputs.rom }}.png"
@@ -300,20 +303,20 @@ jobs:
                                done
                 )"
             }
-            tg_pub "#ROM #${{ github.event.inputs.rom }} ${TREBLE}" \
-                    "*${{ github.event.inputs.rom }} UnOfficial | Android 12*" \
-                    "*Updated:* _${DATE}_" \
+            tg_pub "#ROM #${{ github.event.inputs.rom }} ${TREBLE} #$target" \
+                    "${{ github.event.inputs.rom }} UnOfficial | Android 12" \
+                    "Updated: ${DATE}" \
                     " " \
                     "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }}) [{{ steps.build.outputs.size }}]" \
                     "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
                     "▪️[Changelog](https://github.com/laityts/ChangeLog/blob/${{ github.event.inputs.rom }}/changelog_${{ github.event.inputs.target }}.txt)" \
                     " " \
-                    "*⚠Notes:*" \
+                    "⚠Notes:" \
                     " - Android 12 requires A1 baseband,Otherwise it will bootloop." \
                     " - To use A1 baseband, you must back up efs,persist,modem partitions(TWRP)." \
                     " " \
-                    "*Join 👉 *@TiffanyGlobal" \
-                    "*Follow 👉 *@TiffanyUpdates"
+                    "Join 👉 @TiffanyGlobal" \
+                    "Follow 👉 @TiffanyUpdates"
 
       - name: ButtonUrl
         uses: ./
