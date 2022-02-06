@@ -33,10 +33,9 @@ on:
          description: 'Brand'
          required: true
          default: 'xiaomi'
-       variant:
-         description: 'Variant(userdebug,eng...)'
-         required: true
-         default: 'userdebug'
+       version:
+         description: 'ROM Version'
+         required: false
        sync:
          description: 'Sync'
          required: true
@@ -72,6 +71,7 @@ jobs:
             ls
 
       - name: Make Clean
+        if: github.event.inputs.sync == 'true'
         uses: ./
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -184,12 +184,13 @@ jobs:
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} start building" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTM
             BUILD_START=$(date +"%s")
             source build/envsetup.sh
-            lunch ${{ github.event.inputs.lunch }}_${{ github.event.inputs.target }}-${{ github.event.inputs.variant }}
+            lunch ${{ github.event.inputs.lunch }}_${{ github.event.inputs.target }}-userdebug
             make bacon -j$(nproc --all) 2>&1 | tee log.txt
             BUILD_END=$(date +"%s")
             DIFF=$(($BUILD_END - $BUILD_START))
             FILENAME="$(ls -lS out/target/product/${{ github.event.inputs.target }}/*.zip | head -1 | awk '{print $9}')"
-            SIZE=$(du -sh ${FILENAME} | awk '{print $1}')
+            SIZE="$(du -sh ${FILENAME} | awk '{print $1}')"
+            echo $SIZE
             if [ -f md5.txt ]; then
                 rm -rf md5.txt
             fi
@@ -268,13 +269,13 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
             echo "Telegram Notification"
-            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ steps.pwd.outputs.pwd }}/device/${{ github.event.inputs.brand }})" ]]; then
+            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ github.event.inputs.rom }}/device/${{ github.event.inputs.brand }})" ]]; then
                 TREBLE="#Treble"
             else
                 TREBLE="#NonTreble"
             fi
-            typeset -u target
             target='${{ github.event.inputs.target }}'
+            target=${target^}
             echo $target
             DATE="$(date +%d/%m/%Y)"
             branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
@@ -304,16 +305,20 @@ jobs:
                 )"
             }
             tg_pub "#ROM #${{ github.event.inputs.rom }} ${TREBLE} #$target" \
-                    "${{ github.event.inputs.rom }} UnOfficial | Android 12" \
-                    "Updated: ${DATE}" \
+                    "${{ github.event.inputs.rom }} ${{ github.event.inputs.version }} UnOfficial | Android 12" \
+                    "Updated: _${DATE}_" \
                     " " \
-                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }}) [{{ steps.build.outputs.size }}]" \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }}) _[${{ steps.build.outputs.size }}]_" \
                     "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
                     "▪️[Changelog](https://github.com/laityts/ChangeLog/blob/${{ github.event.inputs.rom }}/changelog_${{ github.event.inputs.target }}.txt)" \
+                    " " \
+                    "⚠Known issues:" \
+                    " - You tell me." \
                     " " \
                     "⚠Notes:" \
                     " - Android 12 requires A1 baseband,Otherwise it will bootloop." \
                     " - To use A1 baseband, you must back up efs,persist,modem partitions(TWRP)." \
                     " " \
+                    "by 👉 @Eytan\_Tan" \
                     "Join 👉 @TiffanyGlobal" \
                     "Follow 👉 @TiffanyUpdates"
