@@ -317,32 +317,3 @@ jobs:
                     " " \
                     "Join 👉 @TiffanyGlobal" \
                     "Follow 👉 @TiffanyUpdates"
-
-      - name: ButtonUrl
-        uses: ./
-        continue-on-error: true
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          run: |
-            echo "ButtonUrl"
-            curl -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-              -H "Content-Type: application/json" \
-              -d '{
-                     "chat_id": "'"${{ secrets.CHATID }}"'",
-                     "text": "'"${{ steps.build.outputs.name }}"'",
-                     "reply_markup":
-                     {
-                         "inline_keyboard": [
-                             [{
-                                 "text": "Release",
-                                 "url": "'"${{ steps.down.outputs.release }}"'"
-                             },
-                             {
-                                 "text": "WeTransfer",
-                                 "url": "'"${{ steps.wetrans.outputs.wetransfer }}"'"
-                             }]
-                         ]
-                     }
-                 }'
