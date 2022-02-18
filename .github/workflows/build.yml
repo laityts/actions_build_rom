@@ -135,6 +135,12 @@ jobs:
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Cloning device specific dependencies" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
             count=$(jq length ${{ github.event.inputs.target }}.json)
             echo $count
+            if [ ! -d "device/${{ github.event.inputs. brand }}/${{ github.event.inputs.target }}" ]; then
+                echo "清理device trees"
+                rm -rf device/${{ github.event.inputs. brand }}
+                rm -rf kernel/${{ github.event.inputs. brand }}
+                rm -rf vendor/${{ github.event.inputs. brand }}
+            fi
             for ((i=0;i<${count};i++));
             do
                repo_url=$(jq -r --argjson i $[i] '.[$i].url' ${{ github.event.inputs.target }}.json)
@@ -212,16 +218,16 @@ jobs:
             echo "::set-output name=md5sum::${MD5SUM}"
             if [[ ! -z "${NAME}" ]]; then
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                shutdown -h +5 &
             else
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
-                shutdown -h +5 &
+                shutdown -h +10 &
                 exit 1
             fi
             if [ -f log.txt ]; then
                 rm -rf log.txt
             fi
-            shutdown -h +5 &
 
       - id: down
         name: Download
@@ -231,6 +237,7 @@ jobs:
           sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/
           cd ${{ github.event.inputs.rom }}
           ls
+          unzip -l ${{ steps.build.outputs.name }}
           ActionsBuild="[${{ github.event.inputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           #release="https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }}"
           release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
