@@ -40,9 +40,10 @@ on:
          description: 'Sync'
          required: true
          default: 'true'
-       dt_branch:
-         description: 'Device Trees Branch(Replace branches in json files)'
-         required: false
+       clean:
+         description: 'Make clean'
+         required: true
+         default: 'true'
 
 jobs:
   build:
@@ -71,7 +72,7 @@ jobs:
             ls
 
       - name: Make Clean
-        if: github.event.inputs.sync == 'true'
+        if: github.event.inputs.clean == 'true'
         uses: ./
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -135,6 +136,12 @@ jobs:
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Cloning device specific dependencies" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
             count=$(jq length ${{ github.event.inputs.target }}.json)
             echo $count
+            if [ ! -d "device/${{ github.event.inputs. brand }}/${{ github.event.inputs.target }}" ]; then
+                echo "清理device trees"
+                rm -rf device/${{ github.event.inputs.brand }}
+                rm -rf kernel/${{ github.event.inputs.brand }}
+                rm -rf vendor/${{ github.event.inputs.brand }}
+            fi
             for ((i=0;i<${count};i++));
             do
                repo_url=$(jq -r --argjson i $[i] '.[$i].url' ${{ github.event.inputs.target }}.json)
@@ -145,12 +152,14 @@ jobs:
                echo $target
                rm -rf $target
                if [ ! -d $target ]; then
-                   if [[ -z "${{ github.event.inputs.dt_branch }}" ]]; then
-                       echo "默认分支"
-                       git clone -b ${branch} ${repo_url} ${target} --depth=1
+                   crlstatus=$(curl -s -m 5 -IL $repo_url|gerp 200)
+                   echo $crlstatus
+                   if [[ -z "${crlstatus}" ]]; then
+                       echo "使用Manifest分支"
+                       git clone -b ${{ github.event.inputs.branch }} ${repo_url} ${target} --depth=1
                    else
-                       echo "自定义分支"
-                       git clone -b ${{ github.event.inputs.dt_branch }} ${repo_url} ${target} --depth=1
+                       echo "使用默认分支"
+                       git clone -b ${branch} ${repo_url} ${target} --depth=1
                    fi
                fi
             done
@@ -212,16 +221,16 @@ jobs:
             echo "::set-output name=md5sum::${MD5SUM}"
             if [[ ! -z "${NAME}" ]]; then
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                shutdown -h +5 &
             else
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
-                shutdown -h +5 &
+                shutdown -h +10 &
                 exit 1
             fi
             if [ -f log.txt ]; then
                 rm -rf log.txt
             fi
-            shutdown -h +5 &
 
       - id: down
         name: Download
@@ -231,6 +240,7 @@ jobs:
           sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/
           cd ${{ github.event.inputs.rom }}
           ls
+          unzip -l ${{ steps.build.outputs.name }}
           ActionsBuild="[${{ github.event.inputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           #release="https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }}"
           release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
@@ -270,14 +280,17 @@ jobs:
           run: |
             echo "Telegram Notification"
             if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ github.event.inputs.rom }}/device/${{ github.event.inputs.brand }})" ]]; then
+                echo "Treble"
                 TREBLE="#Treble"
             else
+                echo "NonTreble"
                 TREBLE="#NonTreble"
             fi
             target='${{ github.event.inputs.target }}'
             target=${target^}
             echo $target
             DATE="$(date +%d/%m/%Y)"
+            echo $DATE
             branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
             echo $branch
             BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ github.event.inputs.rom }}.png"
@@ -286,11 +299,14 @@ jobs:
                 mkdir "$HOME/logo"
             fi
             BANNER="$HOME/logo/${{ github.event.inputs.rom }}.png"
+            echo $BANNER
             if ! [ -f "${BANNER}" ]; then
+                echo "下载logo"
                 wget $BANNER_LINK -O $BANNER
                 cd $HOME/logo
-                ls -al
+                ls $HOME/logo
             fi
+            ls
             TELEGRAM_FOLDER="${HOME}"/telegram
             if ! [ -d "${TELEGRAM_FOLDER}" ]; then
                 git clone https://github.com/laityts/telegram.sh/ "${TELEGRAM_FOLDER}"
