@@ -33,9 +33,6 @@ on:
          description: 'Brand'
          required: true
          default: 'xiaomi'
-       version:
-         description: 'ROM Version'
-         required: false
        sync:
          description: 'Sync'
          required: true
@@ -44,6 +41,9 @@ on:
          description: 'Make clean'
          required: true
          default: 'true'
+       version:
+         description: 'ROM Version'
+         required: false
 
 jobs:
   build:
@@ -246,7 +246,7 @@ jobs:
           release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
           echo "::set-output name=release::${release}"
           echo "Release: ${release}"
-          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build[ ${{ github.event.inputs.target }} ]: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build*[${{ github.event.inputs.target }}]*: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
           ls
 
       - name: Upload to Release
@@ -262,13 +262,29 @@ jobs:
       - id: wetrans
         name: Upload to WeTransfer
         run: |
+          echo "Upload to WeTransfer"
           cd ${{ github.event.inputs.rom }}
+          ls -al
           curl -fsSL git.io/file-transfer | sh
           wetrans=$(./transfer wet -s -p 16 --no-progress ${{ steps.build.outputs.name }})
           wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
           echo "WeTransfer: $wetrans"
           echo "::set-output name=wetransfer::$wetrans"
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - id: sf
+        name: Upload to Sourceforge
+        run: |
+          echo "Upload to Sourceforge"
+          cd ${{ github.event.inputs.rom }}
+          ls -al
+          sshpass -p "${{ secrets.SF_PASSWD }}" ssh -o StrictHostKeyChecking=no laityts@shell.sourceforge.net "[ -d /home/frs/project/${{ github.event.inputs.target }}/${{ github.event.inputs.rom }} ] && echo ok || mkdir -p /home/frs/project/${{ github.event.inputs.target }}/${{ github.event.inputs.rom }}"
+          sshpass -p "${{ secrets.SF_PASSWD }}" scp -o StrictHostKeyChecking=no ${{ steps.build.outputs.name }} laityts@frs.sourceforge.net:/home/frs/project/${{ github.event.inputs.target }}/${{ github.event.inputs.rom }}/
+          echo "Download Link: https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          echo "::set-output name=sflink::${SFLINK}"
+          echo "sflink: ${SFLINK}"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
 
       - name: Telegram Notification
         uses: ./
@@ -324,7 +340,7 @@ jobs:
                     "${{ github.event.inputs.rom }} ${{ github.event.inputs.version }} UnOfficial | Android 12" \
                     "Updated: _${DATE}_" \
                     " " \
-                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }}) _[${{ steps.build.outputs.size }}]_" \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.sf.outputs.sflink }}) _[${{ steps.build.outputs.size }}]_" \
                     "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
                     "▪️[Changelog](https://github.com/laityts/ChangeLog/blob/${{ github.event.inputs.rom }}/changelog_${{ github.event.inputs.target }}.txt)" \
                     " " \
