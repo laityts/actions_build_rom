@@ -33,17 +33,17 @@ on:
          description: 'Brand'
          required: true
          default: 'xiaomi'
-       version:
-         description: 'ROM Version'
-         required: false
        sync:
          description: 'Sync'
          required: true
-         default: 'true'
+         default: 'false'
        clean:
          description: 'Make clean'
          required: true
-         default: 'true'
+         default: 'false'
+       version:
+         description: 'ROM Version'
+         required: false
 
 jobs:
   build:
@@ -221,11 +221,11 @@ jobs:
             echo "::set-output name=md5sum::${MD5SUM}"
             if [[ ! -z "${NAME}" ]]; then
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
-                shutdown -h +5 &
+                shutdown -h +10 &
             else
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
-                shutdown -h +10 &
+                shutdown -h +5 &
                 exit 1
             fi
             if [ -f log.txt ]; then
@@ -246,7 +246,7 @@ jobs:
           release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
           echo "::set-output name=release::${release}"
           echo "Release: ${release}"
-          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build[ ${{ github.event.inputs.target }} ]: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build*[${{ github.event.inputs.target }}]*: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
           ls
 
       - name: Upload to Release
@@ -262,13 +262,27 @@ jobs:
       - id: wetrans
         name: Upload to WeTransfer
         run: |
+          echo "Upload to WeTransfer"
           cd ${{ github.event.inputs.rom }}
+          ls -al
           curl -fsSL git.io/file-transfer | sh
           wetrans=$(./transfer wet -s -p 16 --no-progress ${{ steps.build.outputs.name }})
           wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
           echo "WeTransfer: $wetrans"
           echo "::set-output name=wetransfer::$wetrans"
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - id: sf
+        name: Upload to Sourceforge
+        run: |
+          echo "Upload to Sourceforge"
+          ls -al
+          sshpass -p "${{ secrets.SF_PASSWD }}" scp -o StrictHostKeyChecking=no -r ${{ github.event.inputs.rom }} laityts@frs.sourceforge.net:/home/frs/project/${{ github.event.inputs.target }}/
+          echo "Download Link: https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          echo "::set-output name=sflink::${SFLINK}"
+          echo "sflink: ${SFLINK}"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
 
       - name: Telegram Notification
         uses: ./
@@ -324,7 +338,7 @@ jobs:
                     "${{ github.event.inputs.rom }} ${{ github.event.inputs.version }} UnOfficial | Android 12" \
                     "Updated: _${DATE}_" \
                     " " \
-                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }}) _[${{ steps.build.outputs.size }}]_" \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.sf.outputs.sflink }}) _[${{ steps.build.outputs.size }}]_" \
                     "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
                     "▪️[Changelog](https://github.com/laityts/ChangeLog/blob/${{ github.event.inputs.rom }}/changelog_${{ github.event.inputs.target }}.txt)" \
                     " " \
