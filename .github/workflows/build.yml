@@ -352,3 +352,11 @@ jobs:
                     "by 👉 @Eytan\_Tan" \
                     "Join 👉 @TiffanyGlobal" \
                     "Follow 👉 @TiffanyUpdates"
+
+      - name: Remove old Releases
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 12
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
