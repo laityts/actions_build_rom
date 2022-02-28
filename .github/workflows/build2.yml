@@ -1,5 +1,5 @@
 # 利用ssh登录服务器自动构建ROM并发布
-name: build(server)
+name: build(server2)
 
 # 运行方式:手动，自动(每月15号3点执行)，push，pull_request，点击[start]
 on:
@@ -59,7 +59,7 @@ jobs:
       - name: Create Rom folder
         uses: ./
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
@@ -75,7 +75,7 @@ jobs:
         if: github.event.inputs.clean == 'true'
         uses: ./
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
@@ -91,7 +91,7 @@ jobs:
         if: github.event.inputs.sync == 'true'
         uses: ./
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
@@ -124,7 +124,7 @@ jobs:
         name: Cloning device specific dependencies
         uses: ./
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
@@ -169,7 +169,7 @@ jobs:
         name: Start Building
         uses: ./
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
@@ -237,7 +237,7 @@ jobs:
         run: |
           echo "Download"
           mkdir ${{ github.event.inputs.rom }}
-          sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/
+          sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST2 }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/
           cd ${{ github.event.inputs.rom }}
           ls
           unzip -l ${{ steps.build.outputs.name }}
@@ -288,7 +288,7 @@ jobs:
         uses: ./
         continue-on-error: true
         with:
-          host: ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST2 }}
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
