@@ -36,11 +36,11 @@ on:
        sync:
          description: 'Sync'
          required: true
-         default: 'false'
+         default: 'true'
        clean:
          description: 'Make clean'
          required: true
-         default: 'false'
+         default: 'true'
        version:
          description: 'ROM Version'
          required: false
