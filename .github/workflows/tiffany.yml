@@ -1,5 +1,5 @@
 # 利用ssh登录服务器自动构建ROM并发布
-name: build(server)
+name: build(tiffany)
 
 # 运行方式:手动，自动(每月15号3点执行)，push，pull_request，点击[start]
 on:
@@ -225,7 +225,7 @@ jobs:
             else
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
-                shutdown -h +5 &
+                shutdown -h +30 &
                 exit 1
             fi
             if [ -f log.txt ]; then
@@ -274,6 +274,7 @@ jobs:
 
       - id: sf
         name: Upload to Sourceforge
+        continue-on-error: true
         run: |
           echo "Upload to Sourceforge"
           ls -al
