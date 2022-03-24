@@ -359,7 +359,7 @@ jobs:
             target='${{ github.event.inputs.target }}'
             target=${target^}
             echo $target
-            DATE="$(date +%d/%m/%Y)"
+            DATE="$(TZ=Asia/Beijing date +%d/%m/%Y)"
             echo $DATE
             branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
             echo $branch
