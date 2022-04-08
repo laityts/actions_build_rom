@@ -60,6 +60,8 @@ jobs:
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
+            #echo "action_state=yellow" >> $GITHUB_ENV
+            #echo "${{ env.action_state }}"
             echo "检查项目文件夹是否存在,不存在则创建"
             apt install -y jq
             shutdown -c
@@ -218,11 +220,9 @@ jobs:
             echo "::set-output name=md5sum::${MD5SUM}"
             if [[ ! -z "${NAME}" ]]; then
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
-                shutdown -h +10 &
             else
                 curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
-                shutdown -h +30 &
                 exit 1
             fi
             if [ -f log.txt ]; then
@@ -246,16 +246,6 @@ jobs:
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build*[${{ github.event.inputs.target }}]*: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
           ls
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
-          name: ${{ steps.build.outputs.name }}
-          tag_name: ${{ github.run_id }}
-          body: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE }}
-
       - id: wetrans
         name: Upload to WeTransfer
         run: |
@@ -269,8 +259,7 @@ jobs:
           echo "::set-output name=wetransfer::$wetrans"
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
 
-      - id: sf
-        name: Upload to Sourceforge
+      - name: Upload to Sourceforge
         continue-on-error: true
         run: |
           echo "Upload to Sourceforge"
@@ -278,7 +267,6 @@ jobs:
           sshpass -p "${{ secrets.PASSWD }}" scp -o StrictHostKeyChecking=no -r ${{ github.event.inputs.rom }} laityts@frs.sourceforge.net:/home/frs/project/${{ github.event.inputs.target }}/
           echo "Download Link: https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
           SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
-          echo "::set-output name=sflink::${SFLINK}"
           echo "sflink: ${SFLINK}"
           curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
 
@@ -291,7 +279,8 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
             echo "Telegram Notification"
-            ver="A12"
+            shutdown -h +1 &
+            ver=""
             if [ "${{ github.event.inputs.rom }}" == "PixelExperience" ]; then
                 ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
             fi
@@ -349,6 +338,7 @@ jobs:
                 ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep Elixir_BASE_VERSION | cut -d'=' -f2 | head -1)
             fi
             echo "ver: $ver"
+            SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
             if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ github.event.inputs.rom }}/device/${{ github.event.inputs.brand }})" ]]; then
                 echo "Treble"
                 TREBLE="#Treble"
@@ -392,10 +382,10 @@ jobs:
                 )"
             }
             tg_pub "#ROM #${{ github.event.inputs.rom }} ${TREBLE} #$target" \
-                    "${{ github.event.inputs.rom }} ${ver} Unofficial | Android 12" \
+                    "${{ github.event.inputs.rom }} ${ver} UnOfficial | Android 12.1" \
                     "Updated: _${DATE}_" \
                     " " \
-                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.sf.outputs.sflink }}) _[${{ steps.build.outputs.size }}]_" \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${SFLINK}) _[${{ steps.build.outputs.size }}]_" \
                     "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
                     "▪️[Changelog](https://github.com/laityts/ChangeLog/blob/${{ github.event.inputs.rom }}/changelog_${{ github.event.inputs.target }}.txt)" \
                     " " \
@@ -403,6 +393,16 @@ jobs:
                     " - You tell me." \
                     " " \
                     "by 👉 @Eytan\_Tan"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          name: ${{ steps.build.outputs.name }}
+          tag_name: ${{ github.run_id }}
+          body: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
 
       - name: Remove old Releases
         uses: dev-drprasad/delete-older-releases@master
