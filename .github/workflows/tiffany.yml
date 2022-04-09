@@ -41,6 +41,10 @@ on:
          description: 'Make Clean'
          required: true
          default: 'true'
+       shutdown:
+         description: 'Countdown to shutdown(The default is 0, do not shut down)'
+         required: true
+         default: '0'
 
 jobs:
   build:
@@ -94,7 +98,12 @@ jobs:
           run: |
             echo "进入${{ github.event.inputs.rom }}文件夹"
             cd ${{ github.event.inputs.rom }}
-            PATH="$HOME/bin:$PATH"
+            if ! [ -f "$HOME/bin/repo" ]; then
+                mkdir -p $HOME/bin
+                curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
+                chmod a+x $HOME/bin/repo
+            fi
+            export PATH="$HOME/bin:$PATH"
             if ! [ -f ".repo/manifest.xml" ]; then
                 echo "manifest.xml不存在，重新初始化"
                 repo init -u ${{ github.event.inputs.manifest }} -b ${{ github.event.inputs.branch }} --depth=1
@@ -277,7 +286,10 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
             echo "Telegram Notification"
-            shutdown -h +1 &
+            if [ "${{ github.event.inputs.shutdown }}" -ne "0" ]; then
+                echo "${{ github.event.inputs.shutdown }}分钟之后关机"
+                shutdown -h +${{ github.event.inputs.shutdown }} &
+            fi
             ver=""
             if [ "${{ github.event.inputs.rom }}" == "PixelExperience" ]; then
                 ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
