@@ -1,0 +1,8 @@
+ - March security patch
+ - Rebased over Android 12L source code
+ - Updated translations
+ - Added call recording support
+ - Fixed biometric authentication on some apps – mainly banking apps
+ - A lot of the devices with FOD(fingerprint on display) had issues with in-app biometrics where the FOD icon was misplaced. That issue has been fixed on the source side and rolled out in this update.
+ - Upstreamed kernel to v4.9.309
+
