@@ -1,0 +1,37 @@
+[
+  {
+    "url":"https://github.com/laityts/android_kernel_xiaomi_msm8953.git",
+    "target_path":"kernel/xiaomi/msm8953",
+    "branch":"snow"
+  },
+  {
+    "url":"https://github.com/laityts/android_device_xiaomi_msm8953-common.git",
+    "target_path":"device/xiaomi/msm8953-common",
+    "branch":"twelve"
+  },
+  {
+    "url":"https://github.com/laityts/android_device_xiaomi_tiffany.git",
+    "target_path":"device/xiaomi/tiffany",
+    "branch":"twelve"
+  },
+  {
+    "url":"https://github.com/laityts/vendor_xiaomi_msm8953-common.git",
+    "target_path":"vendor/xiaomi/msm8953-common",
+    "branch":"twelve"
+  },
+  {
+    "url":"https://github.com/laityts/vendor_xiaomi_tiffany.git",
+    "target_path":"vendor/xiaomi/tiffany",
+    "branch":"twelve"
+  },
+  {
+    "url":"https://github.com/laityts/vendor_xiaomi-firmware_tiffany.git",
+    "target_path":"vendor/xiaomi-firmware/tiffany",
+    "branch":"master"
+  },
+  {
+    "url":"https://github.com/kdrag0n/proton-clang.git",
+    "target_path":"prebuilts/clang/host/linux-x86/proton-clang",
+    "branch":"master"
+  }
+]
