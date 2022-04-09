@@ -1,0 +1,530 @@
+# 利用ssh登录服务器自动构建ROM并发布
+name: build(tiffany)
+
+# 运行方式:手动，自动(每月15号3点执行)，push，pull_request，点击[start]
+on:
+  #push:
+  #pull_request:
+  schedule:
+    - cron:  '0 3 5 * *'
+  workflow_dispatch:
+     inputs:
+       rom:
+         description: 'ROM(Project folder)'
+         required: true
+         default: 'PixelExperience'
+       manifest:
+         description: 'Manifest'
+         required: true
+         default: 'https://github.com/PixelExperience/manifest'
+       branch:
+         description: 'Branch(Manifest)'
+         required: true
+         default: 'twelve'
+       target:
+         description: 'Target(Consistent with tiffany.json file name)'
+         required: true
+         default: 'tiffany'
+       lunch:
+         description: 'Lunch(aosp,lineage...)'
+         required: true
+         default: 'aosp'
+       brand:
+         description: 'Brand'
+         required: true
+         default: 'xiaomi'
+       sync:
+         description: 'Sync'
+         required: true
+         default: 'true'
+       clean:
+         description: 'Make Clean'
+         required: true
+         default: 'true'
+       shutdown:
+         description: 'Countdown to shutdown(The default is 0, do not shut down)'
+         required: true
+         default: '0'
+
+jobs:
+  build:
+    # 只允许所有者点击[start]运行
+    if: github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-18.04
+
+    steps:
+      # 在$GITHUB_WORKSPACE下签出您的存储库，以便您的工作可以访问它
+      - name: Checkout
+        uses: actions/checkout@v2
+        
+      - name: Create Rom folder
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "检查项目文件夹是否存在,不存在则创建"
+            apt install -y jq
+            shutdown -c
+            if [ ! -d ${{ github.event.inputs.rom }} ]; then
+                mkdir ${{ github.event.inputs.rom }}
+            fi
+            ls
+
+      - name: Make Clean
+        if: github.event.inputs.clean == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "检查product文件夹是否存在，不存在则跳过"
+            if [ -d ${{ github.event.inputs.rom }}/out/target/product/ ]; then
+                cd ${{ github.event.inputs.rom }}
+                if [ -f log.txt ]; then
+                    rm -rf log.txt
+                fi
+                source build/envsetup.sh
+                make clean
+                #rm -rf out/target/product/${{ github.event.inputs.target }}
+                echo "Make Clean"
+            fi
+
+      - id: sync
+        name: Repo Sync
+        if: github.event.inputs.sync == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "进入${{ github.event.inputs.rom }}文件夹"
+            cd ${{ github.event.inputs.rom }}
+            if ! [ -f "$HOME/bin/repo" ]; then
+                mkdir -p $HOME/bin
+                curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
+                chmod a+x $HOME/bin/repo
+            fi
+            export PATH="$HOME/bin:$PATH"
+            if ! [ -f ".repo/manifest.xml" ]; then
+                echo "manifest.xml不存在，重新初始化"
+                repo init -u ${{ github.event.inputs.manifest }} -b ${{ github.event.inputs.branch }} --depth=1
+            fi
+            ls
+            echo "开始同步"
+            SYNC_START=$(date +"%s")
+            if [ -f Makefile ]; then
+                rm -rf Makefile
+                rm -rf packages/apps/Settings
+                rm -rf packages/apps/Updates
+            fi
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Syncing ${{ github.event.inputs.rom }} Start Time: </b><i>$(date +"%Y-%m-%d"-%H:%M)</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+            ls
+            if ! [ -f Makefile ]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Failed sync ${{ github.event.inputs.rom }}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                exit 1
+            fi
+            SYNC_END=$(date +"%s")
+            DIFF=$(($SYNC_END - $SYNC_START))
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Sync ${{ steps.var.outputs.rom }} Finished Time:</b> <i>$(($DIFF / 60)) minutes and $(($DIFF % 60)) seconds</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            echo "同步结束"
+
+      - id: dt
+        name: Cloning device specific dependencies
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Cloning device specific dependencies"
+            cd ${{ github.event.inputs.rom }}
+            branch="$(echo ${{ github.ref }} | sed 's#refs/heads/##')"
+            wget -O ${{ github.event.inputs.target }}.json -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/${{ github.event.inputs.target }}.json
+            ls
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Cloning device specific dependencies" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            count=$(jq length ${{ github.event.inputs.target }}.json)
+            echo $count
+            if [ ! -d "device/${{ github.event.inputs. brand }}/${{ github.event.inputs.target }}" ]; then
+                echo "清理device trees"
+                rm -rf device/${{ github.event.inputs.brand }}
+                rm -rf kernel/${{ github.event.inputs.brand }}
+                rm -rf vendor/${{ github.event.inputs.brand }}
+            fi
+            for ((i=0;i<${count};i++));
+            do
+               repo_url=$(jq -r --argjson i $[i] '.[$i].url' ${{ github.event.inputs.target }}.json)
+               echo $repo_url
+               branch=$(jq -r --argjson i $[i] '.[$i].branch' ${{ github.event.inputs.target }}.json)
+               echo $branch
+               target=$(jq -r --argjson i $[i] '.[$i].target_path' ${{ github.event.inputs.target }}.json)
+               echo $target
+               rm -rf $target
+               if [ ! -d $target ]; then
+                   crlstatus=$(curl -s -m 5 -IL ${repo_url}|grep 200)
+                   echo $crlstatus
+                   if [[ -z "${crlstatus}" ]]; then
+                       echo "使用Manifest分支"
+                       git clone -b ${{ github.event.inputs.branch }} ${repo_url} ${target} --depth=1
+                   else
+                       echo "使用默认分支"
+                       git clone -b ${branch} ${repo_url} ${target} --depth=1
+                   fi
+               fi
+            done
+            rm -rf ${{ github.event.inputs.target }}.json
+
+      - name: Unofficial OTA Support
+        continue-on-error: true
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "OTA支持"
+            cd ${{ github.event.inputs.rom }}
+            ROM=$PWD
+            echo $PWD
+            cd packages/apps/Settings
+            Prop="src/com/android/settings/system/SystemUpdatePreferenceController.java"
+            sed -i 's/OTA_BUILD_TYPE_PROP,"unofficial"/OTA_BUILD_TYPE_PROP,"ci"/g' $Prop
+            sed -i 's/("ci")/("unofficial")/g' $Prop
+            git diff
+            cd $ROM
+            cd packages/apps/Updates
+            Constants="src/org/pixelexperience/ota/misc/Constants.java"
+            sed -i '/OTA_CI_URL/a\    static final String OTA_UNOFFICIAL_URL = "https://raw.githubusercontent.com/laityts/actions_build_rom/pixel/builds/%s.json";' $Constants
+            Utils="src/org/pixelexperience/ota/misc/Utils.java"
+            sed -i 's/Constants.OTA_CI_URL/Constants.OTA_UNOFFICIAL_URL/g' $Utils
+            git diff
+            cd $ROM
+            
+      - id: build
+        name: Start Building
+        continue-on-error: true
+        timeout-minutes: 80
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "开始构建"
+            cd ${{ github.event.inputs.rom }}
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="CCACHE is enabled for this build" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            # check and set ccache path on envsetup
+            if [ -z ${CCACHE_EXEC} ]; then
+                ccache_path=$(which ccache)
+                if [ ! -z "$ccache_path" ]; then
+                    export CCACHE_EXEC="$ccache_path"
+                    echo "ccache found and CCACHE_EXEC has been set to : $ccache_path"
+                else
+                    echo "ccache not found/installed!"
+                fi
+                export USE_CCACHE=1
+                export CCACHE_DIR="$HOME/.ccache/${{ github.event.inputs.rom }}/${{ github.event.inputs.target }}"
+                ccache -M 50G
+                ccache -s
+            fi
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} start building" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTM
+            BUILD_START=$(date +"%s")
+            source build/envsetup.sh
+            lunch ${{ github.event.inputs.lunch }}_${{ github.event.inputs.target }}-userdebug
+            make bacon -j$(nproc --all) 2>&1 | tee log.txt
+            BUILD_END=$(date +"%s")
+            DIFF=$(($BUILD_END - $BUILD_START))
+            FILENAME="$(ls -lS out/target/product/${{ github.event.inputs.target }}/*${{ github.event.inputs.rom }}*.zip | head -1 | awk '{print $9}')"
+            if [[ -z "${FILENAME}" ]]; then
+                FILENAME="$(ls -lS out/target/product/${{ github.event.inputs.target }}/*.zip | head -1 | awk '{print $9}')"
+            fi
+            SIZE="$(du -sh ${FILENAME} | awk '{print $1}')"
+            echo $SIZE
+            if [ -f md5.txt ]; then
+                rm -rf md5.txt
+            fi
+            if [ -f md5sum.json ]; then
+                rm -rf md5sum.json
+            fi
+            branch="$(echo ${{ github.ref }} | sed 's#refs/heads/##')"
+            wget -O md5.txt -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/md5.txt
+            MD5SUM=$(md5sum ${FILENAME} | cut -d' ' -f1)
+            sed -i "s/tmp/$MD5SUM/" md5.txt
+            curl -X POST -d 'access_token=77c248185d23821a02e78e750066b1981002c51f4c36df9697aad2fa18f3' -d 'title=MD5SUM' -d 'author_name=Eytan' -d '@md5.txt' "https://api.telegra.ph/createPage" -o test.json
+            echo $(jq -r '.result' test.json) >>md5sum.json
+            MD5SUM=$(echo $(jq -r '.url' md5sum.json))
+            echo $FILENAME
+            NAME="$FILENAME"
+            echo "::set-output name=filename::${NAME}"
+            echo "::set-output name=name::$(basename ${FILENAME})"
+            echo "::set-output name=size::${SIZE}"
+            echo "::set-output name=md5sum::${MD5SUM}"
+            if [[ ! -z "${NAME}" ]]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            else
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
+                exit 1
+            fi
+            echo "编译完成"
+
+      - name: Unofficial OTA Update
+        continue-on-error: true
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "OTA更新"
+            ls
+            cd ${{ github.event.inputs.rom }}
+            git clone -b pixel git@github.com:laityts/actions_build_rom.git actions_build_rom
+            zip_name="${{ steps.build.outputs.filename }}"
+            buildprop=out/target/product/${{ github.event.inputs.target }}/system/build.prop
+            linenr=`grep -n "ro.system.build.date.utc" $buildprop | cut -d':' -f1`
+            datetime=`sed -n $linenr'p' < $buildprop | cut -d'=' -f2`
+            filename=`basename "$zip_name"`
+            filehash=`md5sum "$zip_name" | cut -d' ' -f1`
+            id=`sha256sum "$zip_name" | cut -d' ' -f1`
+            size=`stat -c "%s" "$zip_name"`
+            date="$(TZ=Asia/Beijing date +%Y%m%d)"
+            url="https://sourceforge.net/projects/tiffany/files/PixelExperience/PixelExperience_tiffany-12.1-20220423-1010-UNOFFICIAL.zip/download"
+            link="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
+            cp -f actions_build_rom/device.json actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            mv -f actions_build_rom/changelogs/${{ github.event.inputs.target }}/*.txt actions_build_rom/changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+            sed -i "s/1650708550/$datetime/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            sed -i "s/PixelExperience_tiffany-12.1-20220423-1010-UNOFFICIAL.zip/$filename/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            sed -i "s/dd4d9d9c4cb51d5f346fa0a70894e4fe/$filehash/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            sed -i "s/32b413607b817f5a03959ddb32731ddbd688a76e203b8c9b99bd5e1517b38a01/$id/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            sed -i "s/1387596305/$size/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            sed -i "s/$url/$link/g" actions_build_rom/builds/${{ github.event.inputs.target }}.json
+            cd actions_build_rom
+            git diff
+            git add .
+            git commit -m "${{ github.event.inputs.target }}: Update to build $date"
+            git push origin HEAD --force
+            cd ..
+            rm -rf actions_build_rom
+
+      - id: down
+        name: Download
+        run: |
+          echo "Download"
+          mv -f changelogs/${{ github.event.inputs.target }}/*.txt changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          mkdir ${{ github.event.inputs.rom }}
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          unzip -l ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          ActionsBuild="[${{ github.event.inputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          release="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "runs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          log="https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }}"
+          release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
+          echo "::set-output name=release::${release}"
+          echo "::set-output name=log::${log}"
+          echo "Release: ${release}"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build*[${{ github.event.inputs.target }}]*: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+          ls
+
+      - id: musetrans
+        name: Upload to MuseTransfer
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          echo "Upload to MuseTransfer"
+          curl -fsSL git.io/file-transfer | sh
+          musetrans=$(./transfer muse -s -p 12 --no-progress ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }})
+          echo $musetrans
+          musetrans=$(echo $musetrans | grep -o -E "https[^ ]*")
+          echo "MUSEURL=$musetrans" >> $GITHUB_ENV
+          echo "MuseTransfer: $musetrans" >> changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "::set-output name=musetransfer::$musetrans"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="MuseTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+    
+      - id: wetrans
+        name: Upload to WeTransfer
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          echo "Upload to WeTransfer"
+          ls -al
+          curl -fsSL git.io/file-transfer | sh
+          wetrans=$(./transfer wet -s -p 12 --no-progress ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }})
+          wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
+          echo "WETRANS=$wetrans" >> $GITHUB_ENV
+          echo "WeTransfer: $wetrans" >> changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "::set-output name=wetransfer::$wetrans"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - name: Upload to Sourceforge
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          echo "Upload to Sourceforge"
+          ls -al
+          sshpass -p "${{ secrets.PASSWD }}" scp -o StrictHostKeyChecking=no -o ConnectTimeout=180 -r ${{ github.event.inputs.rom }} laityts@frs.sourceforge.net:/home/frs/project/${{ github.event.inputs.target }}/
+          echo "Download Link: https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+          echo "Sourceforge: ${SFLINK}" >> changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Sourceforge upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - name: Telegram Notification
+        uses: ./
+        continue-on-error: true
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Telegram Notification"
+            if [ "${{ github.event.inputs.shutdown }}" -ne "0" ]; then
+                echo "${{ github.event.inputs.shutdown }}分钟之后关机"
+                shutdown -h +${{ github.event.inputs.shutdown }} &
+            fi
+            ver=""
+            if [ "${{ github.event.inputs.rom }}" == "PixelExperience" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "AospExtended" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/version.mk | grep EXTENDED_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "ArrowOS" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/arrow/config/version.mk | grep ARROW_MOD_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "crDroid" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/crdroid/config/common.mk | grep CR_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Syberia" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/syberia/config/versions.mk | grep SYBERIA_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "SuperiorOS" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/superior/config/version.mk | grep SUPERIOR_MOD_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Havoc" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/havoc/config/version.mk | grep HAVOC_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Octavi" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/octavi/config/branding.mk | grep OCTAVI_NUM_VER | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Xtended" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/xtended/config/version.mk | grep XTENDED_MAJOR_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "BlissRoms" ]; then
+                ver1=$(cat ${{ github.event.inputs.rom }}/vendor/bliss/config/version.mk | grep BLISS_VERSION_MAJOR | cut -d'=' -f2 | head -1)
+                ver2=$(cat ${{ github.event.inputs.rom }}/vendor/bliss/config/version.mk | grep BLISS_VERSION_MINOR | cut -d'=' -f2 | head -1)
+                ver="$ver1.$ver2"
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "EvolutionX" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/evolution/config/branding.mk | grep EVO_BASE_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "PixelOS" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Nortical" ]; then
+                ver1=$(cat ${{ github.event.inputs.rom }}/vendor/nortical/config/versioning.mk | grep PLATFORM_NORTICAL_ANDROID_VERSION | cut -d'=' -f2 | head -1)
+                ver2=$(cat ${{ github.event.inputs.rom }}/vendor/nortical/config/versioning.mk | grep PLATFORM_NORTICAL_SPECIFIC_VERSION | cut -d'=' -f2 | head -1)
+                ver3=$(cat ${{ github.event.inputs.rom }}/vendor/nortical/config/versioning.mk | grep PLATFORM_NORTICAL_CHANGE_VERSION | cut -d'=' -f2 | head -1)
+                ver="$ver1.$ver2.$ver3"
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Arcana" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/version.mk | grep ARCANA_CODE | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "DotOS" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/dot/config/branding.mk | grep DOT_MOD_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "PixelPlusUI" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep PPUI_BASE_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            if [ "${{ github.event.inputs.rom }}" == "Elixir" ]; then
+                ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep Elixir_BASE_VERSION | cut -d'=' -f2 | head -1)
+            fi
+            echo "ver: $ver"
+            SFLINK="https://sourceforge.net/projects/${{ github.event.inputs.target }}/files/${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}/download"
+            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ github.event.inputs.rom }}/device/${{ github.event.inputs.brand }})" ]]; then
+                echo "Treble"
+                TREBLE="#Treble"
+            else
+                echo "NonTreble"
+                TREBLE="#NonTreble"
+            fi
+            target='${{ github.event.inputs.target }}'
+            target=${target^}
+            echo $target
+            DATE="$(TZ=Asia/Beijing date +%d/%m/%Y)"
+            echo $DATE
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            echo $branch
+            BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ github.event.inputs.rom }}.png"
+            echo "$BANNER_LINK"
+            if ! [ -d "$HOME/logo" ]; then
+                mkdir "$HOME/logo"
+            fi
+            BANNER="$HOME/logo/${{ github.event.inputs.rom }}.png"
+            echo $BANNER
+            if ! [ -f "${BANNER}" ]; then
+                echo "下载logo"
+                wget $BANNER_LINK -O $BANNER
+                cd $HOME/logo
+                ls $HOME/logo
+            fi
+            ls
+            TELEGRAM_FOLDER="${HOME}"/telegram
+            if ! [ -d "${TELEGRAM_FOLDER}" ]; then
+                git clone https://github.com/laityts/telegram.sh/ "${TELEGRAM_FOLDER}"
+            fi
+            TELEGRAM="${TELEGRAM_FOLDER}"/telegram
+            tg_pub() {
+                "${TELEGRAM}" -t "${{ secrets.TELEGRAM_TOKEN }}" -c "${{ secrets.CHATID }}" -i "$BANNER" -M \
+                "$(
+                               for POST in "${@}"; do
+                                        echo "${POST}"
+                               done
+                )"
+            }
+            tg_pub "#ROM #${{ github.event.inputs.rom }} #$target #SL" \
+                    "${{ github.event.inputs.rom }} ${ver} UnOfficial | Android 12.1" \
+                    "Updated: _${DATE}_" \
+                    " " \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${SFLINK})_[${{ steps.build.outputs.size }}]_" \
+                    "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
+                    "▪️[Changelog](${{ steps.down.outputs.log }})" \
+                    " " \
+                    "First time installation:" \
+                    " - Reboot to recovery" \
+                    " - Format data (if encrypted)" \
+                    " - Wipe system, vendor, cache, dalvik, data" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Flash A1 baseband" \
+                    " - Flash tz.zip" \
+                    " - Reboot & Enjoy" \
+                    " " \
+                    "Notes" \
+                    " - To use A1 baseband, you must back up efs,persist,modem partitions." \
+                    " " \
+                    "by 👉 @Eytan\_Tan" \
+                    "Join 👉 @TiffanyGlobal" \
+                    "Follow 👉 @TiffanyUpdates"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          files: ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          name: ${{ steps.build.outputs.name }}
+          tag_name: ${{ github.run_id }}
+          body_path: changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
+
+      - name: Remove old Releases
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 12
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
