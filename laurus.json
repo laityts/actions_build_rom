@@ -1,0 +1,27 @@
+[
+  {
+    "url":"https://github.com/laityts/android_kernel_xiaomi_laurus.git",
+    "target_path":"kernel/xiaomi/sm6125",
+    "branch":"lineage-18.1"
+  },
+  {
+    "url":"https://github.com/laityts/android_device_xiaomi_sm6125-common.git",
+    "target_path":"device/xiaomi/sm6125-common",
+    "branch":"lineage-18.1"
+  },
+  {
+    "url":"https://github.com/laityts/android_device_xiaomi_laurus.git",
+    "target_path":"device/xiaomi/laurus",
+    "branch":"lineage-18.1"
+  },
+  {
+    "url":"https://github.com/laityts/proprietary_vendor_xiaomi_laurus.git",
+    "target_path":"vendor/xiaomi",
+    "branch":"lineage-18.1"
+  },
+  {
+    "url":"https://github.com/LineageOS/android_hardware_xiaomi.git",
+    "target_path":"hardware/xiaomi",
+    "branch":"lineage-18.1"
+  }
+]
