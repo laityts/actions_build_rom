@@ -64,8 +64,6 @@ jobs:
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
-            #echo "action_state=yellow" >> $GITHUB_ENV
-            #echo "${{ env.action_state }}"
             echo "检查项目文件夹是否存在,不存在则创建"
             apt install -y jq
             shutdown -c
@@ -85,6 +83,9 @@ jobs:
             echo "检查product文件夹是否存在，不存在则跳过"
             if [ -d ${{ github.event.inputs.rom }}/out/target/product/ ]; then
                 cd ${{ github.event.inputs.rom }}
+                if [ -f log.txt ]; then
+                    rm -rf log.txt
+                fi
                 source build/envsetup.sh
                 make clean
                 echo "Make Clean"
@@ -234,16 +235,14 @@ jobs:
                 curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
                 exit 1
             fi
-            if [ -f log.txt ]; then
-                rm -rf log.txt
-            fi
+            echo "编译完成"
 
       - id: down
         name: Download
         run: |
           echo "Download"
           mkdir ${{ github.event.inputs.rom }}
-          sshpass -p ${{ secrets.SERVER_PASSWORD }} scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
           cd ${{ github.event.inputs.rom }}
           ls
           unzip -l ${{ steps.build.outputs.name }}
