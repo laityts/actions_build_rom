@@ -25,8 +25,8 @@
     "branch":"twelve"
   },
   {
-    "url":"https://github.com/laityts/vendor_xiaomi-firmware_tiffany.git",
-    "target_path":"vendor/xiaomi-firmware/tiffany",
+    "url":"https://github.com/laityts/vendor_xiaomi_tiffany-firmware.git",
+    "target_path":"vendor/xiaomi/tiffany-firmware",
     "branch":"master"
   },
   {

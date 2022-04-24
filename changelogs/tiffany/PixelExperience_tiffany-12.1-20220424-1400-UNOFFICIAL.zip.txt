@@ -1,3 +1,9 @@
+Source & Device Changelog:
+ - April security patch
+ - Fixed charging animation not appearing
+ - Fixed unlock sound playing repeatedly
+ - Updated translations
+ - Others fixes
  - Upstreamed kernel to v4.9.310
  - Add clock-frequency property
  - Add eMBMS blobs from LA.UM.9.6.3.r1-04400-89xx.0

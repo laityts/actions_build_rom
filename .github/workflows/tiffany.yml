@@ -38,9 +38,9 @@ on:
          required: true
          default: 'true'
        clean:
-         description: 'Make Clean(make,rm)'
+         description: 'Make Clean(clean,rm)'
          required: true
-         default: 'make'
+         default: 'clean'
 
 jobs:
   build:
@@ -319,6 +319,9 @@ jobs:
           mkdir ${{ github.event.inputs.rom }}
           sshpass -p "${{ secrets.SERVER_PASSWORD }}" scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
           unzip -l ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          unzip ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }} "META-INF/com/google/android/updater-script"
+          cat META-INF/com/google/android/updater-script
+          rm -rf META-INF/com/google/android/updater-script
           ActionsBuild="[${{ github.event.inputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           release="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "" >> changelogs/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
@@ -495,12 +498,11 @@ jobs:
                     " - Format data (if encrypted)" \
                     " - Wipe system, vendor, cache, dalvik, data" \
                     " - Flash ROM zip and magisk (optional)" \
-                    " - Flash A1 baseband" \
-                    " - Flash tz.zip" \
+                    " - Flash [TZ_MI5X_V11.0.3.0.ODBCNXM.zip](https://t.me/TiffanyUpdates/636)" \
                     " - Reboot & Enjoy" \
                     " " \
-                    "Notes" \
-                    " - To use A1 baseband, you must back up efs,persist,modem partitions." \
+                    "Notes:" \
+                    " - 5X baseband is working." \
                     " " \
                     "by 👉 @Eytan\_Tan" \
                     "Join 👉 @TiffanyGlobal" \
