@@ -206,7 +206,7 @@ jobs:
       - id: build
         name: Start Building
         continue-on-error: true
-        timeout-minutes: 80
+        timeout-minutes: 120
         uses: ./
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -270,6 +270,7 @@ jobs:
                 exit 1
             fi
             echo "编译完成"
+            exit 0
 
       - name: Unofficial OTA Update
         continue-on-error: true
