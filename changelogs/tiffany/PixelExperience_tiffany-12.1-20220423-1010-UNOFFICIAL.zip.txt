@@ -1,0 +1,6 @@
+-Upstreamed kernel to v4.9.310
+-Add clock-frequency property
+-Add eMBMS blobs from LA.UM.9.6.3.r1-04400-89xx.0
+-Update CNE/DPM blobs from LA.UM.9.6.3.r1-04400-89xx.0
+-Update QMI/RIL from LA.UM.9.6.3.r1-04400-89xx.0
+-Unofficial OTA Support

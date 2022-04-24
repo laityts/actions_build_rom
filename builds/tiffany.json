@@ -1,0 +1,20 @@
+{
+  "error": false,
+  "maintainers": [
+    {
+      "main_maintainer": true,
+      "github_username": "laityts",
+      "name": "Eytan"
+    }
+  ],
+  "donate_url": "https://www.paypal.me/eytantanx",
+  "website_url": "https://t.me/TiffanyGlobal",
+  "news_url": "https://t.me/TiffanyUpdates",
+  "datetime": 1650796194,
+  "filename": "PixelExperience_tiffany-12.1-20220424-1031-UNOFFICIAL.zip",
+  "id": "b5905b1e7a4eb2dbb285c20b47181d5165bb9f09ccd40828d15a58edc04d3e99",
+  "size": 1319553895,
+  "url": "https://sourceforge.net/projects/tiffany/files/PixelExperience/PixelExperience_tiffany-12.1-20220424-1031-UNOFFICIAL.zip/download",
+  "version": "twelve",
+  "filehash": "1fc40cf03da84f21d7b5800c1b9e4807"
+}
