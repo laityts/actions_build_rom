@@ -386,6 +386,7 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
             echo "Telegram Notification"
+            shutdown -h +5 &
             ver=""
             if [ "${{ github.event.inputs.rom }}" == "PixelExperience" ]; then
                 ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
@@ -499,7 +500,7 @@ jobs:
                     " - Format data (if encrypted)" \
                     " - Wipe system, vendor, cache, dalvik, data" \
                     " - Flash ROM zip and magisk (optional)" \
-                    " - Flash [TZ_MI5X_V11.0.3.0.ODBCNXM.zip](https://t.me/TiffanyUpdates/636)" \
+                    " - Flash [TZ_MI5X_V11.0.3.0.zip](https://t.me/TiffanyUpdates/636)" \
                     " - Reboot & Enjoy" \
                     " " \
                     "Notes:" \
