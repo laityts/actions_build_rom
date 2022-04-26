@@ -386,7 +386,6 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           run: |
             echo "Telegram Notification"
-            shutdown -h +5 &
             ver=""
             if [ "${{ github.event.inputs.rom }}" == "PixelExperience" ]; then
                 ver=$(cat ${{ github.event.inputs.rom }}/vendor/aosp/config/branding.mk | grep CUSTOM_PLATFORM_VERSION | cut -d'=' -f2 | head -1)
