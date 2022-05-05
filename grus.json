@@ -1,0 +1,22 @@
+[
+  {
+    "url":"https://github.com/laityts/android_kernel_xiaomi_sdm710.git",
+    "target_path":"kernel/xiaomi/sdm710",
+    "branch":"lineage-19.1"
+  },
+  {
+    "url":"https://github.com/laityts/android_device_xiaomi_grus.git",
+    "target_path":"device/xiaomi/grus",
+    "branch":"lineage-19.1"
+  },
+  {
+    "url":"https://github.com/laityts/android_vendor_xiaomi_grus.git",
+    "target_path":"vendor/xiaomi/grus",
+    "branch":"lineage-19.1"
+  },
+  {
+    "url":"https://github.com/LineageOS/android_hardware_xiaomi.git",
+    "target_path":"hardware/xiaomi",
+    "branch":"lineage-19.1"
+  }
+]
