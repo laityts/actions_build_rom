@@ -1,0 +1,401 @@
+# 利用ssh登录服务器自动构建ROM并发布
+name: build(grus)
+
+# 运行方式:手动，自动(每月15号3点执行)，push，pull_request，点击[start]
+on:
+  #push:
+  #pull_request:
+  schedule:
+    - cron:  '0 3 5 * *'
+  workflow_dispatch:
+     inputs:
+       rom:
+         description: 'ROM(Project folder)'
+         required: true
+         default: 'crDroid'
+       manifest:
+         description: 'Manifest'
+         required: true
+         default: 'https://github.com/crdroidandroid/android.git'
+       branch:
+         description: 'Branch(Manifest)'
+         required: true
+         default: '12.1'
+       target:
+         description: 'Target(Consistent with grus.json file name)'
+         required: true
+         default: 'grus'
+       lunch:
+         description: 'Lunch(aosp,lineage...)'
+         required: true
+         default: 'lineage'
+       brand:
+         description: 'Brand'
+         required: true
+         default: 'xiaomi'
+       sync:
+         description: 'Sync'
+         required: true
+         default: 'true'
+       clean:
+         description: 'Make Clean(clean,rm)'
+         required: true
+         default: 'clean'
+
+jobs:
+  build:
+    # 只允许所有者点击[start]运行
+    if: github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-18.04
+
+    steps:
+      # 在$GITHUB_WORKSPACE下签出您的存储库，以便您的工作可以访问它
+      - name: Checkout
+        uses: actions/checkout@v2
+        
+      - name: Create Rom folder
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "检查项目文件夹是否存在,不存在则创建"
+            apt install -y jq
+            shutdown -c
+            if [ ! -d ${{ github.event.inputs.rom }} ]; then
+                mkdir ${{ github.event.inputs.rom }}
+            fi
+            ls
+
+      - name: Make Clean
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "检查product文件夹是否存在，不存在则跳过"
+            if [ -d ${{ github.event.inputs.rom }}/out/target/product/ ]; then
+                cd ${{ github.event.inputs.rom }}
+                if [ -f log.txt ]; then
+                    rm -rf log.txt
+                fi
+                if [[ ${{ github.event.inputs.clean }} = "clean" ]]; then
+                    source build/envsetup.sh
+                    make clean
+                    echo "Make Clean"
+                elif [[ ${{ github.event.inputs.clean }} = "rm" ]]; then
+                    rm -rf out/target/product/${{ github.event.inputs.target }}
+                    echo "remove"
+                fi
+            fi
+
+      - id: sync
+        name: Repo Sync
+        if: github.event.inputs.sync == 'true'
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "进入${{ github.event.inputs.rom }}文件夹"
+            cd ${{ github.event.inputs.rom }}
+            if ! [ -f "$HOME/bin/repo" ]; then
+                mkdir -p $HOME/bin
+                curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
+                chmod a+x $HOME/bin/repo
+            fi
+            export PATH="$HOME/bin:$PATH"
+            if ! [ -f ".repo/manifest.xml" ]; then
+                echo "manifest.xml不存在，重新初始化"
+                repo init -u ${{ github.event.inputs.manifest }} -b ${{ github.event.inputs.branch }} --depth=1
+            fi
+            ls
+            echo "开始同步"
+            SYNC_START=$(date +"%s")
+            if [ -f Makefile ]; then
+                rm -rf Makefile
+                rm -rf packages/apps/Settings
+                rm -rf packages/apps/Updates
+            fi
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Syncing ${{ github.event.inputs.rom }} Start Time: </b><i>$(date +"%Y-%m-%d"-%H:%M)</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+            ls
+            if ! [ -f Makefile ]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Failed sync ${{ github.event.inputs.rom }}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                exit 1
+            fi
+            SYNC_END=$(date +"%s")
+            DIFF=$(($SYNC_END - $SYNC_START))
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>Sync ${{ steps.var.outputs.rom }} Finished Time:</b> <i>$(($DIFF / 60)) minutes and $(($DIFF % 60)) seconds</i>" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            echo "同步结束"
+
+      - id: dt
+        name: Cloning device specific dependencies
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Cloning device specific dependencies"
+            cd ${{ github.event.inputs.rom }}
+            branch="$(echo ${{ github.ref }} | sed 's#refs/heads/##')"
+            wget -O ${{ github.event.inputs.target }}.json -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/${{ github.event.inputs.target }}.json
+            ls
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Cloning device specific dependencies" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            count=$(jq length ${{ github.event.inputs.target }}.json)
+            echo $count
+            if [ ! -d "device/${{ github.event.inputs. brand }}/${{ github.event.inputs.target }}" ]; then
+                echo "清理device trees"
+                rm -rf device/${{ github.event.inputs.brand }}
+                rm -rf kernel/${{ github.event.inputs.brand }}
+                rm -rf vendor/${{ github.event.inputs.brand }}
+            fi
+            for ((i=0;i<${count};i++));
+            do
+               repo_url=$(jq -r --argjson i $[i] '.[$i].url' ${{ github.event.inputs.target }}.json)
+               echo $repo_url
+               branch=$(jq -r --argjson i $[i] '.[$i].branch' ${{ github.event.inputs.target }}.json)
+               echo $branch
+               target=$(jq -r --argjson i $[i] '.[$i].target_path' ${{ github.event.inputs.target }}.json)
+               echo $target
+               rm -rf $target
+               if [ ! -d $target ]; then
+                   crlstatus=$(curl -s -m 5 -IL ${repo_url}|grep 200)
+                   echo $crlstatus
+                   if [[ -z "${crlstatus}" ]]; then
+                       echo "使用Manifest分支"
+                       git clone -b ${{ github.event.inputs.branch }} ${repo_url} ${target} --depth=1
+                   else
+                       echo "使用默认分支"
+                       git clone -b ${branch} ${repo_url} ${target} --depth=1
+                   fi
+               fi
+            done
+            rm -rf ${{ github.event.inputs.target }}.json
+            
+      - id: build
+        name: Start Building
+        continue-on-error: true
+        timeout-minutes: 120
+        uses: ./
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "开始构建"
+            cd ${{ github.event.inputs.rom }}
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="CCACHE is enabled for this build" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            # check and set ccache path on envsetup
+            if [ -z ${CCACHE_EXEC} ]; then
+                ccache_path=$(which ccache)
+                if [ ! -z "$ccache_path" ]; then
+                    export CCACHE_EXEC="$ccache_path"
+                    echo "ccache found and CCACHE_EXEC has been set to : $ccache_path"
+                else
+                    echo "ccache not found/installed!"
+                fi
+                export USE_CCACHE=1
+                export CCACHE_DIR="$HOME/.ccache/${{ github.event.inputs.rom }}/${{ github.event.inputs.target }}"
+                ccache -M 50G
+                ccache -s
+            fi
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} start building" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTM
+            BUILD_START=$(date +"%s")
+            source build/envsetup.sh
+            lunch ${{ github.event.inputs.lunch }}_${{ github.event.inputs.target }}-userdebug
+            make bacon -j$(nproc --all) 2>&1 | tee log.txt
+            BUILD_END=$(date +"%s")
+            DIFF=$(($BUILD_END - $BUILD_START))
+            FILENAME="$(ls -lS out/target/product/${{ github.event.inputs.target }}/*${{ github.event.inputs.rom }}*.zip | head -1 | awk '{print $9}')"
+            if [[ -z "${FILENAME}" ]]; then
+                FILENAME="$(ls -lS out/target/product/${{ github.event.inputs.target }}/*.zip | head -1 | awk '{print $9}')"
+            fi
+            SIZE="$(du -sh ${FILENAME} | awk '{print $1}')"
+            echo $SIZE
+            if [ -f md5.txt ]; then
+                rm -rf md5.txt
+            fi
+            if [ -f md5sum.json ]; then
+                rm -rf md5sum.json
+            fi
+            branch="$(echo ${{ github.ref }} | sed 's#refs/heads/##')"
+            echo "::set-output name=branch::${branch}"
+            wget -O md5.txt -q https://raw.githubusercontent.com/${{ github.repository }}/${branch}/md5.txt
+            MD5SUM=$(md5sum ${FILENAME} | cut -d' ' -f1)
+            sed -i "s/tmp/$MD5SUM/" md5.txt
+            curl -X POST -d 'access_token=77c248185d23821a02e78e750066b1981002c51f4c36df9697aad2fa18f3' -d 'title=MD5SUM' -d 'author_name=Eytan' -d '@md5.txt' "https://api.telegra.ph/createPage" -o test.json
+            echo $(jq -r '.result' test.json) >>md5sum.json
+            MD5SUM=$(echo $(jq -r '.url' md5sum.json))
+            echo $FILENAME
+            NAME="$FILENAME"
+            echo "::set-output name=filename::${NAME}"
+            echo "::set-output name=name::$(basename ${FILENAME})"
+            echo "::set-output name=size::${SIZE}"
+            echo "::set-output name=md5sum::${MD5SUM}"
+            if [[ ! -z "${NAME}" ]]; then
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="<b>${{ github.event.inputs.rom }} Build Complete : </b>$((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+            else
+                curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="${{ github.event.inputs.rom }} Build for ${{ github.event.inputs.target }} <b>failed</b> in $((DIFF / 3600)) hour(h) $((DIFF / 60 % 60)) minute(s) and $((DIFF % 60)) second(s)!" -d chat_id=${{ secrets.CHATID }} -d parse_mode=HTML
+                curl -s https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument -F document=@"log.txt" -F chat_id=${{ secrets.CHATID }}
+                exit 1
+            fi
+            echo "编译完成"
+            exit 0
+
+      - id: down
+        name: Download
+        run: |
+          echo "Download"
+          git clone -b ${{ steps.build.outputs.branch }} https://github.com/laityts/OTA.git OTA
+          mv OTA/${{ github.event.inputs.target }}/*.zip.txt OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          mkdir ${{ github.event.inputs.rom }}
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }}:/root/${{ github.event.inputs.rom }}/${{ steps.build.outputs.filename }} ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          unzip -l ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          unzip ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }} "META-INF/com/google/android/updater-script"
+          cat META-INF/com/google/android/updater-script
+          rm -rf META-INF/com/google/android/updater-script
+          ActionsBuild="[${{ github.event.inputs.rom }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          release="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "runs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          MD5SUM=$(md5sum ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }} | cut -d' ' -f1)
+          SHA1SUM=$(sha1sum ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }} | cut -d' ' -f1)
+          SHA256SUM=$(sha256sum ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }} | cut -d' ' -f1)
+          echo "" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "MD5SUM: $MD5SUM" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "SHA1SUM: $SHA1SUM" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "SHA256SUM: $SHA256SUM" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "" >>OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          log="https://github.com/${{ github.repository }}/releases/tag/${{ github.run_id }}"
+          release="https://github.com/${{ github.repository }}/releases/download/${{ github.run_id }}/${{ steps.build.outputs.name }}"
+          echo "::set-output name=release::${release}"
+          echo "::set-output name=log::${log}"
+          echo "Release: ${release}"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="Actions Auto Build*[${{ github.event.inputs.target }}]*: ${ActionsBuild}" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+          ls
+
+      - id: musetrans
+        name: Upload to MuseTransfer
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          echo "Upload to MuseTransfer"
+          curl -fsSL git.io/file-transfer | sh
+          musetrans=$(./transfer muse -s -p 12 --no-progress ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }})
+          echo $musetrans
+          musetrans=$(echo $musetrans | grep -o -E "https[^ ]*")
+          echo "MUSEURL=$musetrans" >> $GITHUB_ENV
+          echo "MuseTransfer: $musetrans" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "::set-output name=musetransfer::$musetrans"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="MuseTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+    
+      - id: wetrans
+        name: Upload to WeTransfer
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          echo "Upload to WeTransfer"
+          ls -al
+          curl -fsSL git.io/file-transfer | sh
+          wetrans=$(./transfer wet -s -p 12 --no-progress ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }})
+          wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
+          echo "WETRANS=$wetrans" >> $GITHUB_ENV
+          echo "WeTransfer: $wetrans" >> OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+          echo "::set-output name=wetransfer::$wetrans"
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d text="WeTransfer upload success" -d chat_id=${{ secrets.CHATID }} -d parse_mode=Markdown
+
+      - name: Telegram Notification
+        uses: ./
+        continue-on-error: true
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          run: |
+            echo "Telegram Notification"
+            if [[ ! -z "$(grep -rn "TARGET_COPY_OUT_VENDOR := vendor" ${{ github.event.inputs.rom }}/device/${{ github.event.inputs.brand }})" ]]; then
+                echo "Treble"
+                TREBLE="#Treble"
+            else
+                echo "NonTreble"
+                TREBLE="#NonTreble"
+            fi
+            target='${{ github.event.inputs.target }}'
+            target=${target^}
+            echo $target
+            DATE="$(TZ=Asia/Beijing date +%d/%m/%Y)"
+            echo $DATE
+            branch=$(echo ${{ github.ref }} | sed 's#refs/heads/##')
+            echo $branch
+            BANNER_LINK="https://raw.githubusercontent.com/${{ github.repository }}/${branch}/logo/${{ github.event.inputs.rom }}.png"
+            echo "$BANNER_LINK"
+            if ! [ -d "$HOME/logo" ]; then
+                mkdir "$HOME/logo"
+            fi
+            BANNER="$HOME/logo/${{ github.event.inputs.rom }}.png"
+            echo $BANNER
+            if ! [ -f "${BANNER}" ]; then
+                echo "下载logo"
+                wget $BANNER_LINK -O $BANNER
+                cd $HOME/logo
+                ls $HOME/logo
+            fi
+            ls
+            TELEGRAM_FOLDER="${HOME}"/telegram
+            if ! [ -d "${TELEGRAM_FOLDER}" ]; then
+                git clone https://github.com/laityts/telegram.sh/ "${TELEGRAM_FOLDER}"
+            fi
+            TELEGRAM="${TELEGRAM_FOLDER}"/telegram
+            tg_pub() {
+                "${TELEGRAM}" -t "${{ secrets.TELEGRAM_TOKEN }}" -c "${{ secrets.CHATID }}" -i "$BANNER" -M \
+                "$(
+                               for POST in "${@}"; do
+                                        echo "${POST}"
+                               done
+                )"
+            }
+            tg_pub "#ROM #${{ github.event.inputs.rom }} #$target #SL" \
+                    "${{ github.event.inputs.rom }} ${ver} UnOfficial | Android 12.1" \
+                    "Updated: _${DATE}_" \
+                    " " \
+                    "▪️[Download](${{ steps.down.outputs.release }}) | [Mirror](${{ steps.wetrans.outputs.wetransfer }})_[${{ steps.build.outputs.size }}]_" \
+                    "▪️[MD5SUM](${{ steps.build.outputs.md5sum }})" \
+                    "▪️[Changelog](${{ steps.down.outputs.log }})" \
+                    " " \
+                    "First time installation:" \
+                    " - Reboot to recovery" \
+                    " - Format data" \
+                    " - Wipe system, vendor, dalvik and cache" \
+                    " - Reboot to recovery" \
+                    " - Adb sideload ROM.zip" \
+                    " - Flash [fw_grus_miui_GRUSGlobal_V12.5.1.0.RFBMIXM.zip](https://www.androidfilehost.com/?fid=2981970449027569929)" \
+                    " - Flash ROM zip and magisk (optional)" \
+                    " - Reboot & Enjoy" \
+                    " " \
+                    "by 👉 @EytanTan" \
+                    "Follow 👉 @GrusUpdates"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          files: ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }}
+          name: ${{ steps.build.outputs.name }}
+          tag_name: ${{ github.run_id }}
+          body_path: OTA/${{ github.event.inputs.target }}/${{ steps.build.outputs.name }}.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
+
+      - name: Remove old Releases
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 12
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE }}
